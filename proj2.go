@@ -4,6 +4,9 @@ package proj2
 // imports it will break the autograder, and we will be Very Upset.
 
 import (
+	"fmt"
+	"golang.org/x/crypto/argon2"
+
 	// You neet to add with
 	// go get github.com/nweaver/cs161-p2/userlib
 	"github.com/nweaver/cs161-p2/userlib"
@@ -96,6 +99,17 @@ type User struct {
 // You can assume the user has a STRONG password
 func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
+	//var data = userlib.RandomBytes(10)
+
+	key := argon2.IDKey([]byte("passord"), []byte("aaa"), 1, 64*1024, 4, 32)
+	fmt.Println(key)
+
+	//x, b := userlib.GenerateRSAKey()
+	//x1 := &x.PublicKey
+
+	//fmt.Println(x, b)
+	//fmt.Println(x1)
+	//fmt.Println(data)
 	return &userdata, err
 }
 
