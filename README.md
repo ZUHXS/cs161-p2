@@ -89,3 +89,17 @@ username, password, file
 save the hash of the username in the datastore, also the hash of the password
 
 and use the password to decrypte the file
+
+
+
+initUser: 生成userdata structure，生成RSA密钥，在datastore中保存data structure，在keystore中保存key
+
+
+
+
+
+#### 一些问题
+
+If we have a user and he successfully logged in, does he need to know how many files he have? or only after he inputs the filename can we check if the file name is valid?
+
+> 不需要
