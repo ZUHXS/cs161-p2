@@ -76,7 +76,9 @@ func bytesToUUID(data []byte) (ret uuid.UUID) {
 
 // The structure definition for a user record
 type User struct {
-	Username string
+	Username string   // something after hash
+	Passwordhash string    // hash for Argon2key
+	Userpassword string    // the saved user password after hashing
 	// You can add other fields here if you want...
 	// Note for JSON to marshal/unmarshal, the fields need to
 	// be public (start with a capital letter)
@@ -101,8 +103,25 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
 	//var data = userlib.RandomBytes(10)
 
+	// first generate the hash for the username
+	sha := userlib.NewSHA256()
+	sha.Write([]byte("username"))
+	name_hash := sha.Sum([]byte(username))
+	userdata.Username = string(name_hash)
+
+	
+
 	key := argon2.IDKey([]byte("passord"), []byte("aaa"), 1, 64*1024, 4, 32)
 	fmt.Println(key)
+
+	sha := userlib.NewSHA256()
+	sha.Write([]byte("aaa"))
+	hash := sha.Sum([]byte("foobar"))
+	hash2 := sha.Sum([]byte("foobar"))
+	fmt.Println(hash)
+	fmt.Println(hash2)
+
+
 
 	//x, b := userlib.GenerateRSAKey()
 	//x1 := &x.PublicKey

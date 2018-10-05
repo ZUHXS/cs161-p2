@@ -61,6 +61,14 @@ NewSHA256: 生成一个用于生成SHA256 hash的一个...我也不知道是啥�
 h := sha256.New()
 h.Write([]byte("hello world\n"))
 fmt.Printf("%x", h.Sum(nil))
+
+piazza:
+sha := userlib.NewSHA256()
+sha.Write([]byte("aaa"))
+hash := sha.Sum([]byte("foobar"))
+hash2 := sha.Sum([]byte("foobar"))
+fmt.Println(hash)
+fmt.Println(hash2)
 ```
 
 Argon2Key(password, salt, keyLen): 一个帮你加盐加密的东西，不需要自己实现对于密码和用户名的hash了
@@ -93,6 +101,20 @@ and use the password to decrypte the file
 
 
 initUser: 生成userdata structure，生成RSA密钥，在datastore中保存data structure，在keystore中保存key
+
+1. datastore[hash(username)]
+2. save hash(passsword), here use Argon2Key with a random bytes for salt, and save slat in the data base
+3. save the public key, save AES-CFB(password, private key
+4. return the data structure
+
+
+
+1. datastore[hash(username)] = hash(passsword), here use Argon2Key with a random bytes for salt, and save slat in the data base
+2. datastore[hash(filename||username)] = hash(json(HMAC(hash(password), passage),CFB-AES(passage))
+
+
+
+
 
 
 
