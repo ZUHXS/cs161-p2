@@ -75,14 +75,11 @@ func bytesToUUID(data []byte) (ret uuid.UUID) {
 // The structure definition for a user record
 type User struct {
 	Username []byte   // something after hash
-	SaltForPW []byte    // salt for Argon2key
 	UserPassword []byte    // the saved user password after hashing
-	SaltForRSAKey []byte
-	NonceForRSAData []byte
-	SaltForFileInfoKey []byte
+	FileInfoAddress []byte
+	FileInfoPassword []byte
+	PrivateKey *userlib.PrivateKey
 	NonceForFileInfoData []byte
-	RSAPrivateKey []byte
-	SaltForFileAddress []byte
 
 
 	// You can add other fields here if you want...
@@ -116,37 +113,24 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
 	var user_file_info FileInfo
 
-	// first generate the hash for the username
+	// first generate the hash for the username for key
 	sha := userlib.NewSHA256()
 	sha.Write([]byte(username))
 	name_hash := sha.Sum([]byte(""))
-	//fmt.Println(len(name_hash))
-	//fmt.Println(name_hash)
-	userdata.Username = name_hash
-	//fmt.Println(name_hash)
-
-	userdata.SaltForPW = userlib.RandomBytes(32)  // to generate 32 length password
-	userdata.UserPassword = userlib.Argon2Key([]byte(password), []byte(userdata.SaltForPW), 32)  // length is 32
+	// save the username and the password as plain text
+	userdata.Username = []byte(username)
+	userdata.UserPassword = []byte(password)
 
 	// begin to generate the rsa key pair, first generate the nonce
-	userdata.SaltForRSAKey = userlib.RandomBytes(16)
 	var RSAKeyPair *userlib.PrivateKey
 	RSAKeyPair, err = userlib.GenerateRSAKey()
+	// save the public key into the keystore
 	userlib.KeystoreSet(string(name_hash), RSAKeyPair.PublicKey)
-	//generate the bytes by json
-	RSAmarshal, err := json.Marshal(RSAKeyPair)
-	// generate the key for AES using SaltForRSAKey
-	temp_AES_en_key := userlib.Argon2Key([]byte(password), userdata.SaltForRSAKey, 16)  // 16 for AES key
-	to_store_RSA_data := make([]byte, len(RSAmarshal))
-	userdata.NonceForRSAData = userlib.RandomBytes(16)
-	temp_encryptor := userlib.CFBEncrypter(temp_AES_en_key, userdata.NonceForRSAData)
-	temp_encryptor.XORKeyStream(to_store_RSA_data, RSAmarshal)
-	userdata.RSAPrivateKey = to_store_RSA_data
+	userdata.PrivateKey = RSAKeyPair
 
 
 	// generate a unique address for user's file information
-	userdata.SaltForFileAddress = userlib.RandomBytes(32)
-	temp_address := userlib.Argon2Key([]byte(password), userdata.SaltForFileAddress, 32)
+	userdata.FileInfoAddress = userlib.RandomBytes(32)
 	// save the file info
 	//fmt.Println(len(user_file_info.hash))
 	file_info_marshal, err := json.Marshal(user_file_info)
@@ -154,27 +138,43 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 		return &userdata, err
 	}
 	// encrypt the file info
-	userdata.SaltForFileInfoKey = userlib.RandomBytes(16)
-	temp_file_info_en_key := userlib.Argon2Key([]byte(password), userdata.SaltForFileInfoKey, 16)
+	userdata.FileInfoPassword = userlib.RandomBytes(16)
 	to_store_file_info_data := make([]byte, len(file_info_marshal))
-	userdata.NonceForFileInfoData = userlib.RandomBytes(16)
-	temp_encryptor = userlib.CFBEncrypter(temp_file_info_en_key, userdata.NonceForFileInfoData)
+	userdata.NonceForFileInfoData = userlib.RandomBytes(16)  // generate the nonce
+	temp_encryptor := userlib.CFBEncrypter(userdata.FileInfoPassword, userdata.NonceForFileInfoData)
 	temp_encryptor.XORKeyStream(to_store_file_info_data, file_info_marshal)
 
-	//fmt.Println(to_store_file_info_data)
-	userlib.DatastoreSet(string(temp_address), to_store_file_info_data)
+	//store the file info data
+	userlib.DatastoreSet(string(userdata.FileInfoAddress), to_store_file_info_data)
 
-	// save the user info
+
+	// prepare the IV and the salt for CFB-AES
+	sha = userlib.NewSHA256()
+	sha.Write([]byte("saltforkey"+username))
+	key_salt_address := sha.Sum([]byte(""))
+	key_salt := userlib.RandomBytes(16)
+	userlib.DatastoreSet(string(key_salt_address), key_salt)
+	sha = userlib.NewSHA256()
+	sha.Write([]byte("IVforCFBAES"+username))
+	key_IV_address := sha.Sum([]byte(""))
+	key_IV := userlib.RandomBytes(16)
+	userlib.DatastoreSet(string(key_IV_address), key_IV)
+
+	// begin to save the data
 	user_marshal, err := json.Marshal(userdata)
 	if (err != nil){
 		return &userdata, err
 	}
+	user_AES_key := userlib.Argon2Key([]byte(password), key_salt, 16)
+	to_store_user_data := make([]byte, len(user_marshal))
+	temp_encryptor = userlib.CFBEncrypter(user_AES_key, key_IV)
+	temp_encryptor.XORKeyStream(to_store_user_data, user_marshal)
 	// save the data in data store
-	userlib.DatastoreSet(string(userdata.Username), user_marshal)
+	userlib.DatastoreSet(string(name_hash), to_store_user_data)
 
 	// generate the HMAC for user
 	temp_mac := userlib.NewHMAC([]byte(password))
-	temp_mac.Write(user_marshal)
+	temp_mac.Write(to_store_user_data)
 	user_hmac := temp_mac.Sum(nil)
 	sha = userlib.NewSHA256()
 	sha.Write([]byte("userHMAC" + username))
@@ -183,7 +183,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 
 	// generate the HMAC for the file info
 	temp_mac = userlib.NewHMAC([]byte(password))
-	temp_mac.Write(user_marshal)
+	temp_mac.Write(to_store_file_info_data)
 	file_info_hmac := temp_mac.Sum(nil)
 	sha = userlib.NewSHA256()
 	sha.Write([]byte("fileinfoHMAC" + username))
@@ -207,9 +207,10 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 		fmt.Println("It is not a valid user!")
 		return nil, errors.New("not a valid user!")
 	}
-	fmt.Println(temp_data)
+
 
 	// check if the HMAC is true
+
 	temp_mac := userlib.NewHMAC([]byte(password))
 	temp_mac.Write(temp_data)
 	user_hmac := temp_mac.Sum(nil)
@@ -218,11 +219,11 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	user_hmac_address := sha.Sum([]byte(""))
 	expect_hmac, ok := userlib.DatastoreGet(string(user_hmac_address))
 	if !ok {
-		fmt.Println("wtf happened?????")
+		fmt.Println("1wtf happened?????")
 		return nil, errors.New("file system corrupted!")
 	}
 	if strings.Compare(string(user_hmac), string(expect_hmac)) != 0 {
-		fmt.Println("wtf happened?????")
+		fmt.Println("2wtf happened?????")
 		return nil, errors.New("file system corrupted!")
 	}
 
@@ -233,11 +234,11 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	}
 
 	// check if the password is valid
-	input_Argon2 := userlib.Argon2Key([]byte(password), []byte(userdata.SaltForPW), 32)  // length is 32
-	if strings.Compare(string(input_Argon2), string(userdata.UserPassword)) != 0 {
-		fmt.Println("not ture! You are cheating!")
-		return nil, errors.New("password not valid!")
-	}
+	//input_Argon2 := userlib.Argon2Key([]byte(password), []byte(userdata.SaltForPW), 32)  // length is 32
+	//if strings.Compare(string(input_Argon2), string(userdata.UserPassword)) != 0 {
+	//	fmt.Println("not ture! You are cheating!")
+	//	return nil, errors.New("password not valid!")
+	//}
 
 	return &userdata, nil
 }
@@ -246,6 +247,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 //
 // The name of the file should NOT be revealed to the datastore!
 func (userdata *User) StoreFile(filename string, data []byte) {
+
 }
 
 // This adds on to an existing file.

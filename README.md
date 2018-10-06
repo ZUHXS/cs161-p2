@@ -90,15 +90,31 @@ datastore的地址是32bytes
 
 总的来看，有四个table，分别为user, userHMAC(用一个key来获得user的bytes的HMAC), file(用来保存用户file的信息), fileHMAC(用一个key来获得file的bytes的HMAC)
 
-其中file的地址用user内的内容来推出，用Argon2Key来做，保存一个salt(SaltForFileAddress), argon2key(salt, password)对应的位置保存file的内容
+user内部明文保存password，明文保存username
 
-file直接保存地址，密码，hash，以及文件名，所以必须直接加密json，使用AES-CFB和SaltForFileInfoKey, 16 bytes
+然后使用Argon2Key(salt, password)当key，在key = hash("saltforkey"+username)内保存salt，还需要一个IV，这个就直接生成随机数，在key = hash("IVforCFBAES"+username)内保存，防止长度拓展攻击
 
-userHMAC和fileHMAC就直接保存在hash("userHMAC"+username), hash("fileHMAC"+username), 保证长度扩展攻击无效
+**这两次hash直接NewSHA256**
 
-对于userHMAC和fileHMAC的计算：用password生成HMAC
+文件info的保存就在一个随机地址，同样明文保存随机地址
 
-RSA public保存在keystore，private先json，然后用CFB保存，使用SaltForRSAKey, 16bytes, 以及CFB需要的IV(NonceForRSAData), 16bytes
+userHMAC和fileHMAC同样保存在hash("userHMAC"+username), hash("fileHMAC"+username)，同样保证长度扩展攻击
+
+这回RSA private key就可以直接保存了
+
+
+
+
+
+~~其中file的地址用user内的内容来推出，用Argon2Key来做，保存一个salt(SaltForFileAddress), argon2key(salt, password)对应的位置保存file的内容~~
+
+~~file直接保存地址，密码，hash，以及文件名，所以必须直接加密json，使用AES-CFB和SaltForFileInfoKey, 16 bytes~~
+
+~~userHMAC和fileHMAC就直接保存在hash("userHMAC"+username), hash("fileHMAC"+username), 保证长度扩展攻击无效~~
+
+~~对于userHMAC和fileHMAC的计算：用password生成HMAC~~
+
+~~RSA public保存在keystore，private先json，然后用CFB保存，使用SaltForRSAKey, 16bytes, 以及CFB需要的IV(NonceForRSAData), 16bytes~~~~
 
 
 
