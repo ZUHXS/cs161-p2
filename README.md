@@ -102,6 +102,24 @@ userHMAC和fileHMAC同样保存在hash("userHMAC"+username), hash("fileHMAC"+use
 
 这回RSA private key就可以直接保存了
 
+对于文件，每个用户都有一个保存自己有的文件的info文件，其中保存了文件名，文件地址以及文件解密的key，和验证HMAC的key (KeyForDecrypt和KeyForHMAC)
+
+对于保存的文件，直接是一个json，一个是加密后文件的HMAC，一个是加密后的文件(老师说要encrypt then hmac来确保没有侧信道攻击)
+
+然后如果是append直接在它对应的地址后面保存，这样只需要按照地址往下遍历即可
+
+当想要共享的时候，在sharingRecord中保存有public key加密后的key，以及一个用这个key加密后的文件信息（文件地址，文件解密用的key以及验证HMAC用的key）
+
+
+
+问题：
+
+如果一个A给B B已经有的信息怎么办？
+
+> 忽略这个文件
+
+这个我想和nick去确认一下，我们可以直接删除原来的文件，用新的key去加密吗...因为我觉得这个approach太容易想到了。。。
+
 
 
 

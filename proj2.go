@@ -89,8 +89,8 @@ type User struct {
 
 type FileInfo struct {
 	name []string
-	key []string
-	hash []string
+	KeyForDecrypt []string
+	KeyForHMAC []string
 	StoreAddress []string
 }
 
