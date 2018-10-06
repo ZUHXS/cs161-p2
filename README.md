@@ -86,7 +86,23 @@ CFBEncrypter, CFBDecrypter: CFB模式的加密解密
 
 #### 设计文档
 
-four table, user, userMAC(the mac for chunk user, with a generated key from password), file, fileMAC(the mac for chunk file, with a generated key from password)
+datastore的地址是32bytes
+
+总的来看，有四个table，分别为user, userHMAC(用一个key来获得user的bytes的HMAC), file(用来保存用户file的信息), fileHMAC(用一个key来获得file的bytes的HMAC)
+
+其中file的地址用user内的内容来推出，用Argon2Key来做，保存一个salt(SaltForFileAddress), argon2key(salt, password)对应的位置保存file的内容
+
+file直接保存地址，密码，hash，以及文件名，所以必须直接加密json，使用AES-CFB和SaltForFileInfoKey, 16 bytes
+
+userHMAC和fileHMAC就直接保存在hash("userHMAC"+username), hash("fileHMAC"+username), 保证长度扩展攻击无效
+
+对于userHMAC和fileHMAC的计算：用password生成HMAC
+
+RSA public保存在keystore，private先json，然后用CFB保存，使用SaltForRSAKey, 16bytes, 以及CFB需要的IV(NonceForRSAData), 16bytes
+
+
+
+four table, user, userHMAC(the mac for chunk user, with a generated key from password), file, fileHMAC(the mac for chunk file, with a generated key from password)
 
 for file, we need a key to encrypt the chunk, a typical key
 

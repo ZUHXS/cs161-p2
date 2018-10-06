@@ -4,6 +4,9 @@ package proj2
 // imports it will break the autograder, and we will be Very Upset.
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"fmt"
 	// You neet to add with
 	// go get github.com/nweaver/cs161-p2/userlib
 	"github.com/nweaver/cs161-p2/userlib"
@@ -78,12 +81,22 @@ type User struct {
 	UserPassword []byte    // the saved user password after hashing
 	SaltForRSAKey []byte
 	NonceForRSAData []byte
+	SaltForFileInfoKey []byte
+	NonceForFileInfoData []byte
 	RSAPrivateKey []byte
-	SaltForUserMAC []byte
-	SaltForFileMac
+	SaltForFileAddress []byte
+
+
 	// You can add other fields here if you want...
 	// Note for JSON to marshal/unmarshal, the fields need to
 	// be public (start with a capital letter)
+}
+
+type FileInfo struct {
+	name []string
+	key []string
+	hash []string
+	StoreAddress []string
 }
 
 // This creates a user.  It will only be called once for a user
@@ -103,14 +116,17 @@ type User struct {
 // You can assume the user has a STRONG password
 func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
+	var user_file_info FileInfo
 
 	// first generate the hash for the username
 	sha := userlib.NewSHA256()
-	sha.Write([]byte("username"))
-	name_hash := sha.Sum([]byte(username))
+	sha.Write([]byte(username))
+	name_hash := sha.Sum([]byte(""))
+	//fmt.Println(len(name_hash))
+	//fmt.Println(name_hash)
 	userdata.Username = name_hash
 
-	userdata.SaltForPW = userlib.RandomBytes(32)  // to generate 128 length password
+	userdata.SaltForPW = userlib.RandomBytes(32)  // to generate 32 length password
 	userdata.UserPassword = userlib.Argon2Key([]byte(password), []byte(userdata.SaltForPW), 32)  // length is 32
 
 	// begin to generate the rsa key pair, first generate the nonce
@@ -121,20 +137,60 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	//generate the bytes by json
 	RSAmarshal, err := json.Marshal(RSAKeyPair)
 	// generate the key for AES using SaltForRSAKey
-	temp_AES_en_key := userlib.Argon2Key([]byte(password), []byte(userdata.SaltForRSAKey), 16)  // 16 for AES key
+	temp_AES_en_key := userlib.Argon2Key([]byte(password), userdata.SaltForRSAKey, 16)  // 16 for AES key
 	to_store_RSA_data := make([]byte, len(RSAmarshal))
 	userdata.NonceForRSAData = userlib.RandomBytes(16)
 	temp_encryptor := userlib.CFBEncrypter(temp_AES_en_key, userdata.NonceForRSAData)
 	temp_encryptor.XORKeyStream(to_store_RSA_data, RSAmarshal)
 	userdata.RSAPrivateKey = to_store_RSA_data
 
+
+	// generate a unique address for user's file information
+	userdata.SaltForFileAddress = userlib.RandomBytes(32)
+	temp_address := userlib.Argon2Key([]byte(password), userdata.SaltForFileAddress, 32)
+	// save the file info
+	//fmt.Println(len(user_file_info.hash))
+	file_info_marshal, err := json.Marshal(user_file_info)
+	if (err != nil){
+		return &userdata, err
+	}
+	// encrypt the file info
+	userdata.SaltForFileInfoKey = userlib.RandomBytes(16)
+	temp_file_info_en_key := userlib.Argon2Key([]byte(password), userdata.SaltForFileInfoKey, 16)
+	to_store_file_info_data := make([]byte, len(file_info_marshal))
+	userdata.NonceForFileInfoData = userlib.RandomBytes(16)
+	temp_encryptor = userlib.CFBEncrypter(temp_file_info_en_key, userdata.NonceForFileInfoData)
+	temp_encryptor.XORKeyStream(to_store_file_info_data, file_info_marshal)
+
+	fmt.Println(to_store_file_info_data)
+	userlib.DatastoreSet(string(temp_address), to_store_file_info_data)
+
+	// save the user info
 	user_marshal, err := json.Marshal(userdata)
 	if (err != nil){
 		return &userdata, err
 	}
-
 	// save the data in data store
 	userlib.DatastoreSet(string(userdata.Username), user_marshal)
+
+	// generate the HMAC for user
+	temp_mac := hmac.New(sha256.New, []byte(password))
+	temp_mac.Write(user_marshal)
+	user_hmac := temp_mac.Sum(nil)
+	sha = userlib.NewSHA256()
+	sha.Write([]byte("userHMAC" + username))
+	user_hmac_address := sha.Sum([]byte(""))
+	userlib.DatastoreSet(string(user_hmac_address), user_hmac)
+
+	// generate the HMAC for the file info
+	temp_mac = hmac.New(sha256.New, []byte(password))
+	temp_mac.Write(user_marshal)
+	file_info_hmac := temp_mac.Sum(nil)
+	sha = userlib.NewSHA256()
+	sha.Write([]byte("fileinfoHMAC" + username))
+	file_info_hmac_address := sha.Sum([]byte(""))
+	userlib.DatastoreSet(string(file_info_hmac_address), file_info_hmac)
+
 
 	return &userdata, err
 }
@@ -145,8 +201,8 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 func GetUser(username string, password string) (userdataptr *User, err error) {
 	sha := userlib.NewSHA256()
 	sha.Write([]byte("username"))
-	name_hash := sha.Sum([]byte(username))
-	user_index_key := name_hash
+	//name_hash := sha.Sum([]byte(username))
+	//user_index_key := name_hash
 
 
 

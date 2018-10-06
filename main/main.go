@@ -7,7 +7,7 @@ import (
 
 func main() {
 	proj2.InitUser("aaa", "bbb");
-	proj2.InitUser("aaa", "bbb");
+	proj2.InitUser("bbb", "bbb");
 	aaa := "jdklfjakldsjflk"
 	bbb := []byte(aaa)
 	fmt.Println(aaa, bbb)
