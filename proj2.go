@@ -4,8 +4,6 @@ package proj2
 // imports it will break the autograder, and we will be Very Upset.
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
 	"fmt"
 	// You neet to add with
 	// go get github.com/nweaver/cs161-p2/userlib
@@ -125,6 +123,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	//fmt.Println(len(name_hash))
 	//fmt.Println(name_hash)
 	userdata.Username = name_hash
+	//fmt.Println(name_hash)
 
 	userdata.SaltForPW = userlib.RandomBytes(32)  // to generate 32 length password
 	userdata.UserPassword = userlib.Argon2Key([]byte(password), []byte(userdata.SaltForPW), 32)  // length is 32
@@ -162,7 +161,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	temp_encryptor = userlib.CFBEncrypter(temp_file_info_en_key, userdata.NonceForFileInfoData)
 	temp_encryptor.XORKeyStream(to_store_file_info_data, file_info_marshal)
 
-	fmt.Println(to_store_file_info_data)
+	//fmt.Println(to_store_file_info_data)
 	userlib.DatastoreSet(string(temp_address), to_store_file_info_data)
 
 	// save the user info
@@ -174,7 +173,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userlib.DatastoreSet(string(userdata.Username), user_marshal)
 
 	// generate the HMAC for user
-	temp_mac := hmac.New(sha256.New, []byte(password))
+	temp_mac := userlib.NewHMAC([]byte(password))
 	temp_mac.Write(user_marshal)
 	user_hmac := temp_mac.Sum(nil)
 	sha = userlib.NewSHA256()
@@ -183,14 +182,13 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userlib.DatastoreSet(string(user_hmac_address), user_hmac)
 
 	// generate the HMAC for the file info
-	temp_mac = hmac.New(sha256.New, []byte(password))
+	temp_mac = userlib.NewHMAC([]byte(password))
 	temp_mac.Write(user_marshal)
 	file_info_hmac := temp_mac.Sum(nil)
 	sha = userlib.NewSHA256()
 	sha.Write([]byte("fileinfoHMAC" + username))
 	file_info_hmac_address := sha.Sum([]byte(""))
 	userlib.DatastoreSet(string(file_info_hmac_address), file_info_hmac)
-
 
 	return &userdata, err
 }
@@ -199,16 +197,49 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 // fail with an error if the user/password is invalid, or if the user
 // data was corrupted, or if the user can't be found.
 func GetUser(username string, password string) (userdataptr *User, err error) {
+	var userdata User
 	sha := userlib.NewSHA256()
-	sha.Write([]byte("username"))
-	//name_hash := sha.Sum([]byte(username))
-	//user_index_key := name_hash
+	sha.Write([]byte(username))
+	name_hash := sha.Sum([]byte(""))
+	// first get from the remote datastore
+	temp_data, ok := userlib.DatastoreGet(string(name_hash))
+	if !ok {
+		fmt.Println("It is not a valid user!")
+		return nil, errors.New("not a valid user!")
+	}
+	fmt.Println(temp_data)
 
+	// check if the HMAC is true
+	temp_mac := userlib.NewHMAC([]byte(password))
+	temp_mac.Write(temp_data)
+	user_hmac := temp_mac.Sum(nil)
+	sha = userlib.NewSHA256()
+	sha.Write([]byte("userHMAC" + username))
+	user_hmac_address := sha.Sum([]byte(""))
+	expect_hmac, ok := userlib.DatastoreGet(string(user_hmac_address))
+	if !ok {
+		fmt.Println("wtf happened?????")
+		return nil, errors.New("file system corrupted!")
+	}
+	if strings.Compare(string(user_hmac), string(expect_hmac)) != 0 {
+		fmt.Println("wtf happened?????")
+		return nil, errors.New("file system corrupted!")
+	}
 
+	// then unmarshal to get the data
+	err = json.Unmarshal(temp_data, &userdata)
+	if err != nil {
+		return nil, err
+	}
 
+	// check if the password is valid
+	input_Argon2 := userlib.Argon2Key([]byte(password), []byte(userdata.SaltForPW), 32)  // length is 32
+	if strings.Compare(string(input_Argon2), string(userdata.UserPassword)) != 0 {
+		fmt.Println("not ture! You are cheating!")
+		return nil, errors.New("password not valid!")
+	}
 
-
-	return
+	return &userdata, nil
 }
 
 // This stores a file in the datastore.
