@@ -160,7 +160,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	key_IV := userlib.RandomBytes(16)
 	userlib.DatastoreSet(string(key_IV_address), key_IV)
 
-	// begin to save the data
+	// begin to save and encrypte the data
 	user_marshal, err := json.Marshal(userdata)
 	if (err != nil){
 		return &userdata, err
@@ -189,6 +189,12 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	sha.Write([]byte("fileinfoHMAC" + username))
 	file_info_hmac_address := sha.Sum([]byte(""))
 	userlib.DatastoreSet(string(file_info_hmac_address), file_info_hmac)
+
+
+	// fmt.Println(userdata.FileInfoAddress)
+	// fmt.Println(userdata.FileInfoPassword)
+	// fmt.Println(userdata.PrivateKey)
+	// fmt.Println(userdata.NonceForFileInfoData)
 
 	return &userdata, err
 }
@@ -219,26 +225,52 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	user_hmac_address := sha.Sum([]byte(""))
 	expect_hmac, ok := userlib.DatastoreGet(string(user_hmac_address))
 	if !ok {
-		fmt.Println("1wtf happened?????")
-		return nil, errors.New("file system corrupted!")
+		//fmt.Println("1wtf happened?????")
+		return nil, errors.New("file system corrupted or it is not a valid user!")
 	}
 	if strings.Compare(string(user_hmac), string(expect_hmac)) != 0 {
-		fmt.Println("2wtf happened?????")
+		//fmt.Println("2wtf happened?????")
+		return nil, errors.New("file system corrupted or it is not a valid user!")
+	}
+
+	// first get the IV and the salt for CFB-AES decrypt
+	sha = userlib.NewSHA256()
+	sha.Write([]byte("saltforkey"+username))
+	key_salt_address := sha.Sum([]byte(""))
+	key_salt, ok := userlib.DatastoreGet(string(key_salt_address))
+	// key_salt not found, file system corrupted
+	if !ok {
+		return nil, errors.New("file system corrupted!")
+	}
+	sha = userlib.NewSHA256()
+	sha.Write([]byte("IVforCFBAES"+username))
+	key_IV_address := sha.Sum([]byte(""))
+	key_IV, ok := userlib.DatastoreGet(string(key_IV_address))
+	// key_IV not found, file system corrupted
+	if !ok {
 		return nil, errors.New("file system corrupted!")
 	}
 
+	// try to decrypt the data
+	decryption_data := make([]byte, len(temp_data))
+	user_AES_key := userlib.Argon2Key([]byte(password), key_salt, 16)
+	temp_decryptor := userlib.CFBDecrypter(user_AES_key, key_IV)
+	temp_decryptor.XORKeyStream(decryption_data, temp_data)
+
 	// then unmarshal to get the data
-	err = json.Unmarshal(temp_data, &userdata)
+	err = json.Unmarshal(decryption_data, &userdata)
 	if err != nil {
 		return nil, err
 	}
 
 	// check if the password is valid
-	//input_Argon2 := userlib.Argon2Key([]byte(password), []byte(userdata.SaltForPW), 32)  // length is 32
-	//if strings.Compare(string(input_Argon2), string(userdata.UserPassword)) != 0 {
-	//	fmt.Println("not ture! You are cheating!")
-	//	return nil, errors.New("password not valid!")
-	//}
+	if password != string(userdata.UserPassword) {
+		return nil, errors.New("not a valid password!")
+	}
+	// fmt.Println(userdata.FileInfoAddress)
+	// fmt.Println(userdata.FileInfoPassword)
+	// fmt.Println(userdata.PrivateKey)
+	// fmt.Println(userdata.NonceForFileInfoData)
 
 	return &userdata, nil
 }
