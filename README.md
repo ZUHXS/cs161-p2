@@ -86,6 +86,12 @@ CFBEncrypter, CFBDecrypter: CFB模式的加密解密
 
 #### 设计文档
 
+four table, user, userMAC(the mac for chunk user, with a generated key from password), file, fileMAC(the mac for chunk file, with a generated key from password)
+
+for file, we need a key to encrypt the chunk, a typical key
+
+
+
 首先是有username，password和文件
 
 对于name，由于需要保证不知道名字，需要加一次hash，对于password同样，保存hash，因为保证了password的熵，所以直接用password来加密信息
@@ -102,10 +108,24 @@ and use the password to decrypte the file
 
 initUser: 生成userdata structure，生成RSA密钥，在datastore中保存data structure，在keystore中保存key
 
-1. datastore[hash(username)]
-2. save hash(passsword), here use Argon2Key with a random bytes for salt, and save slat in the data base
-3. save the public key, save AES-CFB(password, private key
+1. datastore[hash(username)], hashing save as Username
+2. save hash(passsword), here use Argon2Key with a random bytes for salt, and save slat in the data base, length 16bytes, the salt is SaltForPW, the saved encrypted password is UserPasswod
+3. save the public key, save AES-CFB(argon2(password, salt2), private key), salt2 saved as SalfForRSAKey, and we need to save the Nonce as NonceForRSAData
 4. return the data structure
+
+
+
+
+
+```go
+var newone User
+err = json.Unmarshal(marshaluser, &newone)
+if err != nil{
+    return &userdata, err
+}
+
+fmt.Println(newone.Username)
+```
 
 
 

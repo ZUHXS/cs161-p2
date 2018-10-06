@@ -4,9 +4,6 @@ package proj2
 // imports it will break the autograder, and we will be Very Upset.
 
 import (
-	"fmt"
-	"golang.org/x/crypto/argon2"
-
 	// You neet to add with
 	// go get github.com/nweaver/cs161-p2/userlib
 	"github.com/nweaver/cs161-p2/userlib"
@@ -76,9 +73,14 @@ func bytesToUUID(data []byte) (ret uuid.UUID) {
 
 // The structure definition for a user record
 type User struct {
-	Username string   // something after hash
-	Passwordhash string    // hash for Argon2key
-	Userpassword string    // the saved user password after hashing
+	Username []byte   // something after hash
+	SaltForPW []byte    // salt for Argon2key
+	UserPassword []byte    // the saved user password after hashing
+	SaltForRSAKey []byte
+	NonceForRSAData []byte
+	RSAPrivateKey []byte
+	SaltForUserMAC []byte
+	SaltForFileMac
 	// You can add other fields here if you want...
 	// Note for JSON to marshal/unmarshal, the fields need to
 	// be public (start with a capital letter)
@@ -101,34 +103,39 @@ type User struct {
 // You can assume the user has a STRONG password
 func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
-	//var data = userlib.RandomBytes(10)
 
 	// first generate the hash for the username
 	sha := userlib.NewSHA256()
 	sha.Write([]byte("username"))
 	name_hash := sha.Sum([]byte(username))
-	userdata.Username = string(name_hash)
+	userdata.Username = name_hash
 
-	
+	userdata.SaltForPW = userlib.RandomBytes(32)  // to generate 128 length password
+	userdata.UserPassword = userlib.Argon2Key([]byte(password), []byte(userdata.SaltForPW), 32)  // length is 32
 
-	key := argon2.IDKey([]byte("passord"), []byte("aaa"), 1, 64*1024, 4, 32)
-	fmt.Println(key)
+	// begin to generate the rsa key pair, first generate the nonce
+	userdata.SaltForRSAKey = userlib.RandomBytes(16)
+	var RSAKeyPair *userlib.PrivateKey
+	RSAKeyPair, err = userlib.GenerateRSAKey()
+	userlib.KeystoreSet(string(name_hash), RSAKeyPair.PublicKey)
+	//generate the bytes by json
+	RSAmarshal, err := json.Marshal(RSAKeyPair)
+	// generate the key for AES using SaltForRSAKey
+	temp_AES_en_key := userlib.Argon2Key([]byte(password), []byte(userdata.SaltForRSAKey), 16)  // 16 for AES key
+	to_store_RSA_data := make([]byte, len(RSAmarshal))
+	userdata.NonceForRSAData = userlib.RandomBytes(16)
+	temp_encryptor := userlib.CFBEncrypter(temp_AES_en_key, userdata.NonceForRSAData)
+	temp_encryptor.XORKeyStream(to_store_RSA_data, RSAmarshal)
+	userdata.RSAPrivateKey = to_store_RSA_data
 
-	sha := userlib.NewSHA256()
-	sha.Write([]byte("aaa"))
-	hash := sha.Sum([]byte("foobar"))
-	hash2 := sha.Sum([]byte("foobar"))
-	fmt.Println(hash)
-	fmt.Println(hash2)
+	user_marshal, err := json.Marshal(userdata)
+	if (err != nil){
+		return &userdata, err
+	}
 
+	// save the data in data store
+	userlib.DatastoreSet(string(userdata.Username), user_marshal)
 
-
-	//x, b := userlib.GenerateRSAKey()
-	//x1 := &x.PublicKey
-
-	//fmt.Println(x, b)
-	//fmt.Println(x1)
-	//fmt.Println(data)
 	return &userdata, err
 }
 
@@ -136,6 +143,15 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 // fail with an error if the user/password is invalid, or if the user
 // data was corrupted, or if the user can't be found.
 func GetUser(username string, password string) (userdataptr *User, err error) {
+	sha := userlib.NewSHA256()
+	sha.Write([]byte("username"))
+	name_hash := sha.Sum([]byte(username))
+	user_index_key := name_hash
+
+
+
+
+
 	return
 }
 
