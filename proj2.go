@@ -88,10 +88,16 @@ type User struct {
 }
 
 type FileInfo struct {
-	name []string
-	KeyForDecrypt []string
-	KeyForHMAC []string
-	StoreAddress []string
+	FileName [][]byte
+	KeyForDecrypt [][]byte
+	NonceForDecrypt [][]byte
+	KeyForHMAC [][]byte
+	StoreAddress [][]byte
+}
+
+type FileDataStructure struct {
+	HMAC []byte
+	EncryptedContent []byte
 }
 
 // This creates a user.  It will only be called once for a user
@@ -191,11 +197,6 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userlib.DatastoreSet(string(file_info_hmac_address), file_info_hmac)
 
 
-	// fmt.Println(userdata.FileInfoAddress)
-	// fmt.Println(userdata.FileInfoPassword)
-	// fmt.Println(userdata.PrivateKey)
-	// fmt.Println(userdata.NonceForFileInfoData)
-
 	return &userdata, err
 }
 
@@ -267,10 +268,6 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	if password != string(userdata.UserPassword) {
 		return nil, errors.New("not a valid password!")
 	}
-	// fmt.Println(userdata.FileInfoAddress)
-	// fmt.Println(userdata.FileInfoPassword)
-	// fmt.Println(userdata.PrivateKey)
-	// fmt.Println(userdata.NonceForFileInfoData)
 
 	return &userdata, nil
 }
@@ -279,7 +276,89 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 //
 // The name of the file should NOT be revealed to the datastore!
 func (userdata *User) StoreFile(filename string, data []byte) {
+	// first get the file info data
+	temp_data, ok := userlib.DatastoreGet(string(userdata.FileInfoAddress))
+	if !ok {   // we don't have the return value... So nothing happens...
+		fmt.Println("err!")
+		return
+	}
+	// check if the HMAC satisfies the file_info
+	sha := userlib.NewSHA256()
+	sha.Write([]byte("fileinfoHMAC"+string(userdata.Username)))
+	file_info_hmac_address := sha.Sum([]byte(""))
+	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
+	if !ok {
+		fmt.Println("err!")
+		return
+	}
+	temp_mac := userlib.NewHMAC([]byte(userdata.UserPassword))
+	temp_mac.Write(temp_data)
+	file_info_hmac := temp_mac.Sum(nil)
+	if string(expect_file_info_hmac) != string(file_info_hmac) {
+		fmt.Println("IntegrityError!")
+	}
 
+	// recover the file info
+	recover_data := make([]byte, len(temp_data))
+	temp_decryptor := userlib.CFBDecrypter(userdata.FileInfoPassword, userdata.NonceForFileInfoData)
+	temp_decryptor.XORKeyStream(recover_data, temp_data)
+
+	// unmarshal the data
+	var file_info FileInfo
+	err := json.Unmarshal(recover_data, &file_info)
+	if err != nil {
+		fmt.Println(err)
+		fmt.Println("unmarshal error")
+		return
+	}
+
+	index := len(file_info.StoreAddress)
+	file_info.FileName = append(file_info.FileName, []byte(filename))
+	file_info.StoreAddress = append(file_info.StoreAddress, userlib.RandomBytes(32))  // address 32 bytes
+	file_info.KeyForDecrypt = append(file_info.KeyForDecrypt, userlib.RandomBytes(16))  // AES 128
+	file_info.NonceForDecrypt = append(file_info.NonceForDecrypt, userlib.RandomBytes(16))
+	file_info.KeyForHMAC = append(file_info.KeyForHMAC, userlib.RandomBytes(16))  // length of the key for HMAC 16 bytes
+
+	// encrypt the file data
+	data_after_encryption := make([]byte, len(data))
+	temp_encryptor := userlib.CFBEncrypter([]byte(file_info.KeyForDecrypt[index]), []byte(file_info.NonceForDecrypt[index]))
+	temp_encryptor.XORKeyStream(data_after_encryption, data)
+	// calculate the HMAC for the encrypted data
+	temp_mac = userlib.NewHMAC([]byte(file_info.KeyForHMAC[index]))
+	temp_mac.Write(data_after_encryption)
+	data_hmac := temp_mac.Sum(nil)
+	var NewFileData FileDataStructure
+	NewFileData.EncryptedContent = data_after_encryption
+	NewFileData.HMAC = data_hmac
+	// marshal the data
+	File_data_marshal, err := json.Marshal(NewFileData)
+	if err != nil {
+		fmt.Println("marshal error")
+		fmt.Println(err)
+	}
+	// store the filedata
+	userlib.DatastoreSet(string(file_info.StoreAddress[index]), File_data_marshal)
+	// restore the file info
+	file_info_marshal, err := json.Marshal(file_info)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	// encrypt the file info
+	to_store_file_info_data := make([]byte, len(file_info_marshal))
+	temp_encryptor = userlib.CFBEncrypter(userdata.FileInfoPassword, userdata.NonceForFileInfoData)
+	temp_encryptor.XORKeyStream(to_store_file_info_data, file_info_marshal)
+	// store the file info data
+	userlib.DatastoreSet(string(userdata.FileInfoAddress), to_store_file_info_data)
+
+	// update the hmac for file info
+	temp_mac = userlib.NewHMAC([]byte(userdata.UserPassword))
+	temp_mac.Write(to_store_file_info_data)
+	new_file_info_hmac := temp_mac.Sum(nil)
+	sha = userlib.NewSHA256()
+	sha.Write([]byte("fileinfoHMAC" + string(userdata.Username)))
+	new_file_info_hmac_address := sha.Sum([]byte(""))
+	userlib.DatastoreSet(string(new_file_info_hmac_address), new_file_info_hmac)
 }
 
 // This adds on to an existing file.
@@ -296,7 +375,77 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 //
 // It should give an error if the file is corrupted in any way.
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
-	return
+
+	temp_data, ok := userlib.DatastoreGet(string(userdata.FileInfoAddress))
+	if !ok {
+		return nil, errors.New("file system corrupted!")
+	}
+	// check if the HMAC satisfies the file_info
+	sha := userlib.NewSHA256()
+	sha.Write([]byte("fileinfoHMAC"+string(userdata.Username)))
+	file_info_hmac_address := sha.Sum([]byte(""))
+	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
+	if !ok {
+		return nil, errors.New("IntegrityError")
+	}
+	temp_mac := userlib.NewHMAC([]byte(userdata.UserPassword))
+	temp_mac.Write(temp_data)
+	file_info_hmac := temp_mac.Sum(nil)
+	if string(expect_file_info_hmac) != string(file_info_hmac) {
+		return nil, errors.New("IntegrityError")
+	}
+
+	// recover the file info
+	recover_data := make([]byte, len(temp_data))
+	temp_decryptor := userlib.CFBDecrypter(userdata.FileInfoPassword, userdata.NonceForFileInfoData)
+	temp_decryptor.XORKeyStream(recover_data, temp_data)
+
+	// unmarshal the data
+	var file_info FileInfo
+	err = json.Unmarshal(recover_data, &file_info)
+	if err != nil {
+		return nil, err
+	}
+	index := len(file_info.FileName)
+	flag := 0
+	var a int
+	for a = 0; a < index; a++ {
+		if string(file_info.FileName[a]) == filename {
+			flag = 1
+			break
+		}
+	}
+	if flag == 0 {
+		return nil, nil
+	}
+
+	// get the data
+	temp_temp_data, ok := userlib.DatastoreGet(string(file_info.StoreAddress[a]))
+	if !ok {
+		fmt.Println("error loading!")
+		return nil, errors.New("IntegrityError")
+	}
+	// first unmarshal and check if it is valid
+	var new_file_data FileDataStructure
+	err = json.Unmarshal(temp_temp_data, &new_file_data)
+	if err != nil {
+		return nil, err
+	}
+	// calculate the HMAC for the encrypted data
+	temp_mac = userlib.NewHMAC([]byte(file_info.KeyForHMAC[a]))
+	temp_mac.Write(new_file_data.EncryptedContent)
+	data_hmac := temp_mac.Sum(nil)
+	// check if the HMAC equals
+	if string(new_file_data.HMAC) != string(data_hmac) {
+		return nil, errors.New("IntegrityError")
+	}
+
+	// equals, begin to decrypt the data
+	recover_file_data := make([]byte, len(new_file_data.EncryptedContent))
+	temp_decryptor = userlib.CFBDecrypter(file_info.KeyForDecrypt[a], file_info.NonceForDecrypt[a])
+	temp_decryptor.XORKeyStream(recover_file_data, new_file_data.EncryptedContent)
+
+	return recover_file_data, nil
 }
 
 // You may want to define what you actually want to pass as a
