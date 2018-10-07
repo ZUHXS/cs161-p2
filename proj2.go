@@ -279,7 +279,6 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	// first get the file info data
 	temp_data, ok := userlib.DatastoreGet(string(userdata.FileInfoAddress))
 	if !ok {   // we don't have the return value... So nothing happens...
-		fmt.Println("err!")
 		return
 	}
 	// check if the HMAC satisfies the file_info
@@ -288,14 +287,13 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	file_info_hmac_address := sha.Sum([]byte(""))
 	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
 	if !ok {
-		fmt.Println("err!")
 		return
 	}
 	temp_mac := userlib.NewHMAC([]byte(userdata.UserPassword))
 	temp_mac.Write(temp_data)
 	file_info_hmac := temp_mac.Sum(nil)
 	if string(expect_file_info_hmac) != string(file_info_hmac) {
-		fmt.Println("IntegrityError!")
+		return
 	}
 
 	// recover the file info
@@ -307,17 +305,33 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	var file_info FileInfo
 	err := json.Unmarshal(recover_data, &file_info)
 	if err != nil {
-		fmt.Println(err)
-		fmt.Println("unmarshal error")
 		return
 	}
 
 	index := len(file_info.StoreAddress)
-	file_info.FileName = append(file_info.FileName, []byte(filename))
-	file_info.StoreAddress = append(file_info.StoreAddress, userlib.RandomBytes(32))  // address 32 bytes
-	file_info.KeyForDecrypt = append(file_info.KeyForDecrypt, userlib.RandomBytes(16))  // AES 128
-	file_info.NonceForDecrypt = append(file_info.NonceForDecrypt, userlib.RandomBytes(16))
-	file_info.KeyForHMAC = append(file_info.KeyForHMAC, userlib.RandomBytes(16))  // length of the key for HMAC 16 bytes
+	var a int
+	flag := 0
+	for a = 0; a < index; a++ {
+		if filename == string(file_info.FileName[a]) {
+			flag = 1    // overwrite the data
+			break
+		}
+	}
+
+	if flag == 0 {
+		file_info.FileName = append(file_info.FileName, []byte(filename))
+		file_info.StoreAddress = append(file_info.StoreAddress, userlib.RandomBytes(32))   // address 32 bytes
+		file_info.KeyForDecrypt = append(file_info.KeyForDecrypt, userlib.RandomBytes(16)) // AES 128
+		file_info.NonceForDecrypt = append(file_info.NonceForDecrypt, userlib.RandomBytes(16))
+		file_info.KeyForHMAC = append(file_info.KeyForHMAC, userlib.RandomBytes(16)) // length of the key for HMAC 16 bytes
+	} else {     // update the corresponding file info
+		index = a
+		file_info.FileName[a] = []byte(filename)
+		file_info.StoreAddress[a] = userlib.RandomBytes(32)  // address 32 bytes
+		file_info.KeyForDecrypt[a] = userlib.RandomBytes(16) // AES 128
+		file_info.NonceForDecrypt[a] = userlib.RandomBytes(16)
+		file_info.KeyForHMAC[a] = userlib.RandomBytes(16) // length of the key for HMAC 16 bytes
+	}
 
 	// encrypt the file data
 	data_after_encryption := make([]byte, len(data))
@@ -333,15 +347,14 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	// marshal the data
 	File_data_marshal, err := json.Marshal(NewFileData)
 	if err != nil {
-		fmt.Println("marshal error")
-		fmt.Println(err)
+		return
 	}
 	// store the filedata
 	userlib.DatastoreSet(string(file_info.StoreAddress[index]), File_data_marshal)
 	// restore the file info
 	file_info_marshal, err := json.Marshal(file_info)
 	if err != nil {
-		fmt.Println(err)
+		return
 	}
 
 	// encrypt the file info
@@ -368,6 +381,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 // metadata you need.
 
 func (userdata *User) AppendFile(filename string, data []byte) (err error) {
+	
 	return
 }
 
