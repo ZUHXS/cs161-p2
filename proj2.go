@@ -529,15 +529,23 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	//fmt.Println(temp_file_data_nonce, temp_file_data_key_Dec)
 	// encrypt the data
 
-
-
-
 	return recover_file_data, nil
 }
 
 // You may want to define what you actually want to pass as a
 // sharingRecord to serialized/deserialize in the data store.
 type sharingRecord struct {
+	KeyAfterEncrypt []byte   // RSAEncrypt(public key, key)
+	NonceForEncrypt []byte
+	DataAfterEncrypt []byte   // E(key, data)
+	RSASignOnHashCT []byte   // sign(hash(ciphertext))
+}
+
+type sharingData struct {
+	KeyForDecrypt []byte
+	NonceForDecrypt []byte
+	KeyForHMAC []byte
+	StoreAddress []byte
 }
 
 // This creates a sharing record, which is a key pointing to something
@@ -551,9 +559,101 @@ type sharingRecord struct {
 // recipient can access the sharing record, and only the recipient
 // should be able to know the sender.
 
-func (userdata *User) ShareFile(filename string, recipient string) (
-	msgid string, err error) {
-	return
+func (userdata *User) ShareFile(filename string, recipient string) (msgid string, err error) {
+	var share_record sharingRecord
+	// first get the key and nonce, and use public key to encrypt it
+	AES_key := userlib.RandomBytes(16)
+	share_record.NonceForEncrypt = userlib.RandomBytes(16)
+	// get the public key
+	recipient_name_hash := CalcHash([]byte(recipient))
+	recipient_public_key, ok := userlib.KeystoreGet(string(recipient_name_hash))
+	if !ok {
+		return "", errors.New("NotValidUser")
+	}
+	RSA_encrypted_data, err := userlib.RSAEncrypt(&recipient_public_key, AES_key, nil)
+	if err != nil {
+		return "", err
+	}
+	share_record.KeyAfterEncrypt = RSA_encrypted_data
+
+	// encrypt the data
+	var share_file_info sharingData
+	// get the file info data
+	temp_data, ok := userlib.DatastoreGet(string(userdata.FileInfoAddress))
+	if !ok {
+		return "", errors.New("file system corrupted!")
+	}
+	// check if the HMAC satisfies the file_info
+	sha := userlib.NewSHA256()
+	sha.Write([]byte("fileinfoHMAC"+string(userdata.Username)))
+	file_info_hmac_address := sha.Sum([]byte(""))
+	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
+	if !ok {
+		return "", errors.New("IntegrityError")
+	}
+	temp_mac := userlib.NewHMAC([]byte(userdata.UserPassword))
+	temp_mac.Write(temp_data)
+	file_info_hmac := temp_mac.Sum(nil)
+	if string(expect_file_info_hmac) != string(file_info_hmac) {
+		return "", errors.New("IntegrityError")
+	}
+
+	// recover the file info
+	recover_data := make([]byte, len(temp_data))
+	temp_decryptor := userlib.CFBDecrypter(userdata.FileInfoPassword, userdata.NonceForFileInfoData)
+	temp_decryptor.XORKeyStream(recover_data, temp_data)
+
+	// unmarshal the data
+	var file_info FileInfo
+	err = json.Unmarshal(recover_data, &file_info)
+	if err != nil {
+		return "", err
+	}
+
+	// find the filename
+	index := len(file_info.FileName)
+	flag := 0
+	var a int
+	for a = 0; a < index; a++ {
+		if userlib.Equal(file_info.FileName[a], []byte(filename)) {
+			flag = 1
+			break
+		}
+	}
+	if flag == 0 {
+		return "", errors.New("NotValidFilename")
+	}
+
+	// get the file info
+	share_file_info.KeyForDecrypt = file_info.KeyForDecrypt[a]
+	share_file_info.NonceForDecrypt = file_info.NonceForDecrypt[a]
+	share_file_info.StoreAddress = file_info.StoreAddress[a]
+	share_file_info.KeyForHMAC = file_info.KeyForHMAC[a]
+
+	// marshal the data
+	file_info_data_marshaled, err := json.Marshal(share_file_info)
+	if err != nil {
+		return "", err
+	}
+
+	// use the key to encrypt
+	encrypted_file_info_data := CalcEncCFBAES(AES_key, share_record.NonceForEncrypt, file_info_data_marshaled)
+	share_record.DataAfterEncrypt = encrypted_file_info_data
+
+	// get the sign on the encrypted data
+	RSA_sig_on_DT, err := userlib.RSASign(userdata.PrivateKey, encrypted_file_info_data)
+	if err != nil {
+		return "", err
+	}
+	share_record.RSASignOnHashCT = RSA_sig_on_DT
+
+	// marshal the message to get the message
+	result_data, err := json.Marshal(share_record)
+	if err != nil {
+		return "", err
+	}
+
+	return string(result_data), nil
 }
 
 // Note recipient's filename can be different from the sender's filename.
