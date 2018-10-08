@@ -106,7 +106,9 @@ userHMAC和fileHMAC同样保存在hash("userHMAC"+username), hash("fileHMAC"+use
 
 对于保存的文件，直接是一个json，一个是加密后文件的HMAC，一个是加密后的文件(老师说要encrypt then hmac来确保没有侧信道攻击)
 
-然后如果是append直接在它对应的地址后面保存，这样只需要按照地址往下遍历即可
+然后如果是append直接把原始地址重新SHA256 hash一遍，获得新地址
+
+当然这里的nonce和key肯定是不能重用的...这里直接hash原始的key和nonce就行（我觉得）
 
 当想要共享的时候，在sharingRecord中保存有public key加密后的key，以及一个用这个key加密后的文件信息（文件地址，文件解密用的key以及验证HMAC用的key）
 
