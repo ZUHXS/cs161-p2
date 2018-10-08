@@ -424,6 +424,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	if err != nil {
 		return err
 	}
+
 	// store the filedata
 	userlib.DatastoreSet(string(temp_file_data_address), file_data_marshal)
 
