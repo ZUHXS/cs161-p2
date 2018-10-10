@@ -93,7 +93,7 @@ type FileInfo struct {
 	NonceForDecrypt [][]byte
 	KeyForHMAC [][]byte
 	StoreAddress [][]byte
-	Number []int
+	NumberAddress [][]byte
 }
 
 type FileDataStructure struct {
@@ -312,22 +312,24 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 		}
 	}
 
+
+
 	if flag == 0 {
 		file_info.FileName = append(file_info.FileName, []byte(filename))
-		file_info.Number = append(file_info.Number, 1)
+		file_info.NumberAddress = append(file_info.NumberAddress, userlib.RandomBytes(32))
 		file_info.StoreAddress = append(file_info.StoreAddress, userlib.RandomBytes(32))   // address 32 bytes
 		file_info.KeyForDecrypt = append(file_info.KeyForDecrypt, userlib.RandomBytes(16)) // AES 128
 		file_info.NonceForDecrypt = append(file_info.NonceForDecrypt, userlib.RandomBytes(16))
 		file_info.KeyForHMAC = append(file_info.KeyForHMAC, userlib.RandomBytes(16)) // length of the key for HMAC 16 bytes
-	} else {     // update the corresponding file info
+	} else { // update the corresponding file info
 		index = a
-		file_info.Number[a] = 1
-		file_info.FileName[a] = []byte(filename)
-		file_info.StoreAddress[a] = userlib.RandomBytes(32)  // address 32 bytes
-		file_info.KeyForDecrypt[a] = userlib.RandomBytes(16) // AES 128
-		file_info.NonceForDecrypt[a] = userlib.RandomBytes(16)
-		file_info.KeyForHMAC[a] = userlib.RandomBytes(16) // length of the key for HMAC 16 bytes
 	}
+
+	// generate the number bytes to store
+	Number := 1
+	Number_byte, err := json.Marshal(Number)
+	// reset the Number
+	userlib.DatastoreSet(string(file_info.NumberAddress[a]), Number_byte)
 
 	// encrypt the file data
 	data_after_encryption := CalcEncCFBAES(file_info.KeyForDecrypt[index], file_info.NonceForDecrypt[index], data)
@@ -408,14 +410,30 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	temp_file_data_key_Dec := file_info.KeyForDecrypt[a]
 	temp_file_data_address := file_info.StoreAddress[a]
 	//temp_data, ok = userlib.DatastoreGet(string(temp_file_data_address))
-	fmt.Println(file_info.Number[a])
-	for count := 0; count < file_info.Number[a]; count++ {
+
+	// get the current file number
+	NumberByte, ok := userlib.DatastoreGet(string(file_info.NumberAddress[a]))
+	if !ok {
+		return errors.New("IntegrityError")
+	}
+	// unmarshal the data
+	var Number int
+	err = json.Unmarshal(NumberByte, &Number)
+	if err != nil {
+		return err
+	}
+
+	// update the Number and restore into the datastore
+	Number += 1
+	NewNumberByte, err := json.Marshal(Number)
+	userlib.DatastoreSet(string(file_info.NumberAddress[a]), NewNumberByte)
+
+
+	for count := 1; count < Number; count++ {
 		temp_file_data_nonce = CalcHash(temp_file_data_nonce)[:16]
 		temp_file_data_key_Dec = CalcHash(temp_file_data_key_Dec)[:16]
 		temp_file_data_address = CalcHash(temp_file_data_address)
 	}
-	file_info.Number[a] += 1
-	fmt.Println(file_info.Number[a])
 	// encrypt the data
 	data_after_encryption := CalcEncCFBAES(temp_file_data_key_Dec, temp_file_data_nonce, data)
 	data_hmac := CalcHMAC(file_info.KeyForHMAC[a], data_after_encryption)
@@ -513,15 +531,49 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	// equals, begin to decrypt the data
 	recover_file_data := CalcDecCFBAES(file_info.KeyForDecrypt[a], file_info.NonceForDecrypt[a], new_file_data.EncryptedContent)
 
-	// check if there are appended data
 
-	temp_file_data_address := CalcHash(file_info.StoreAddress[a])
-	temp_origin_data, ok := userlib.DatastoreGet(string(temp_file_data_address))
+	// get the total number
+	NumberBytes, ok := userlib.DatastoreGet(string(file_info.NumberAddress[a]))
 	if !ok {
-		return recover_file_data, nil
+		return nil, errors.New("IntegrityError")
 	}
+	var Number int
+	err = json.Unmarshal(NumberBytes, &Number)
+	if err != nil {
+		return nil, err
+	}
+
+	// check if there are appended data
+	temp_file_data_address := file_info.StoreAddress[a]
 	temp_file_data_nonce := file_info.NonceForDecrypt[a]
 	temp_file_data_key_Dec := file_info.KeyForDecrypt[a]
+
+	var temp_file_data FileDataStructure
+	for b := 1; b < Number; b++ {
+		temp_file_data_address = CalcHash(temp_file_data_address)
+		temp_file_data_nonce = CalcHash(temp_file_data_nonce)[:16]
+		temp_file_data_key_Dec = CalcHash(temp_file_data_key_Dec)[:16]
+		temp_origin_data, ok := userlib.DatastoreGet(string(temp_file_data_address))
+		if !ok {
+			return nil, errors.New("1IntegrityError")
+		}
+		// begin to decrypt, first unmarshal
+		err = json.Unmarshal(temp_origin_data, &temp_file_data)
+		if err != nil {
+			return nil, err
+		}
+		// then check the HMAC
+		data_hmac := CalcHMAC(file_info.KeyForHMAC[a], temp_file_data.EncryptedContent)
+		if !userlib.Equal(data_hmac, temp_file_data.HMAC) {
+			return nil, errors.New("2IntegrityError")
+		}
+		// begin to decrypt the data
+		temp_recover_file_data := CalcDecCFBAES(temp_file_data_key_Dec, temp_file_data_nonce, temp_file_data.EncryptedContent)
+		recover_file_data = []byte(string(recover_file_data) + string(temp_recover_file_data))
+	}
+
+
+	/*
 	var temp_file_data FileDataStructure
 	for ; ; temp_file_data_address= CalcHash(temp_file_data_address) {
 		temp_origin_data, ok = userlib.DatastoreGet(string(temp_file_data_address))
@@ -546,6 +598,8 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	}
 	//fmt.Println(temp_file_data_nonce, temp_file_data_key_Dec)
 	// encrypt the data
+	*/
+
 
 	return recover_file_data, nil
 }
@@ -564,6 +618,7 @@ type sharingData struct {
 	NonceForDecrypt []byte
 	KeyForHMAC []byte
 	StoreAddress []byte
+	NumberAddress []byte
 }
 
 // This creates a sharing record, which is a key pointing to something
@@ -647,6 +702,7 @@ func (userdata *User) ShareFile(filename string, recipient string) (msgid string
 	share_file_info.NonceForDecrypt = file_info.NonceForDecrypt[a]
 	share_file_info.StoreAddress = file_info.StoreAddress[a]
 	share_file_info.KeyForHMAC = file_info.KeyForHMAC[a]
+	share_file_info.NumberAddress = file_info.NumberAddress[a]
 
 	// marshal the data
 	file_info_data_marshaled, err := json.Marshal(share_file_info)
@@ -675,12 +731,112 @@ func (userdata *User) ShareFile(filename string, recipient string) (msgid string
 	return string(result_data), nil
 }
 
+// golang doesn't support function overload
+// so I have to do this
+// what a f***ing language!
+
+func (userdata *User) StoreFileWithIndex(filename string, new_file_info sharingData) error{
+	// first get the file info data
+	temp_data, ok := userlib.DatastoreGet(string(userdata.FileInfoAddress))
+	if !ok {   // we don't have the return value... So nothing happens...
+		return errors.New("IntegrityError")
+	}
+	// check if the HMAC satisfies the file_info
+	file_info_hmac_address := CalcHash([]byte("fileinfoHMAC"+string(userdata.Username)))
+	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
+	if !ok {
+		return errors.New("IntegrityError")
+	}
+	file_info_hmac := CalcHMAC(userdata.UserPassword, temp_data)
+	if !userlib.Equal(expect_file_info_hmac, file_info_hmac) {
+		return errors.New("IntegrityError")
+	}
+
+	// recover the file info
+	recover_data := CalcDecCFBAES(userdata.FileInfoPassword, userdata.NonceForFileInfoData, temp_data)
+	// unmarshal the data
+	var file_info FileInfo
+	err := json.Unmarshal(recover_data, &file_info)
+	if err != nil {
+		return errors.New("IntegrityError")
+	}
+
+	// find the filename
+	index := len(file_info.StoreAddress)
+	var a int
+	flag := 0
+	for a = 0; a < index; a++ {
+		if filename == string(file_info.FileName[a]) {
+			flag = 1    // overwrite the data
+			break
+		}
+	}
+
+	if flag == 0 {
+		file_info.FileName = append(file_info.FileName, []byte(filename))
+		file_info.NumberAddress = append(file_info.NumberAddress, new_file_info.NumberAddress)
+		file_info.StoreAddress = append(file_info.StoreAddress, new_file_info.StoreAddress)   // address 32 bytes
+		file_info.KeyForDecrypt = append(file_info.KeyForDecrypt, new_file_info.KeyForDecrypt) // AES 128
+		file_info.NonceForDecrypt = append(file_info.NonceForDecrypt, new_file_info.NonceForDecrypt)
+		file_info.KeyForHMAC = append(file_info.KeyForHMAC, new_file_info.KeyForHMAC) // length of the key for HMAC 16 bytes
+	} else {     // update the corresponding file info
+		return errors.New("RepeatedFileName!")     // according to Nick's answer on Piazza, "It is up to you what you do"
+	}
+
+	// restore the file info
+	file_info_marshal, err := json.Marshal(file_info)
+	if err != nil {
+		return errors.New("IntegrityError")
+	}
+	// encrypt the file info
+	to_store_file_info_data := CalcEncCFBAES(userdata.FileInfoPassword, userdata.NonceForFileInfoData, file_info_marshal)
+	// store the file info data
+	userlib.DatastoreSet(string(userdata.FileInfoAddress), to_store_file_info_data)
+
+	// update the hmac for file info
+	new_file_info_hmac := CalcHMAC(userdata.UserPassword, to_store_file_info_data)
+	new_file_info_hmac_address := CalcHash([]byte("fileinfoHMAC" + string(userdata.Username)))
+	userlib.DatastoreSet(string(new_file_info_hmac_address), new_file_info_hmac)
+	return nil
+}
+
+
+
 // Note recipient's filename can be different from the sender's filename.
 // The recipient should not be able to discover the sender's view on
 // what the filename even is!  However, the recipient must ensure that
 // it is authentically from the sender.
-func (userdata *User) ReceiveFile(filename string, sender string,
-	msgid string) error {
+func (userdata *User) ReceiveFile(filename string, sender string, msgid string) error {
+	// first unmarshal the data, get the key
+	var share_record sharingRecord
+	err := json.Unmarshal([]byte(msgid), &share_record)
+	if err != nil {
+		return err
+	}
+	Data_key, err := userlib.RSADecrypt(userdata.PrivateKey, share_record.KeyAfterEncrypt, nil)
+	if err != nil {
+		return err
+	}
+
+	// use the Data_key to decrypte the file record
+	marshaled_file_info := CalcDecCFBAES(Data_key, share_record.NonceForEncrypt, share_record.DataAfterEncrypt)
+
+	// unmarshal the record
+	var file_info sharingData
+	err = json.Unmarshal(marshaled_file_info, &file_info)
+	if err != nil {
+		return err
+	}
+
+	// TODO: check if there are MITM
+
+	// store the data in the user's datastore
+	err = userdata.StoreFileWithIndex(filename, file_info)
+	if err != nil {
+		return err
+	}
+
+
 	return nil
 }
 
