@@ -821,14 +821,22 @@ func (userdata *User) ReceiveFile(filename string, sender string, msgid string) 
 	// use the Data_key to decrypte the file record
 	marshaled_file_info := CalcDecCFBAES(Data_key, share_record.NonceForEncrypt, share_record.DataAfterEncrypt)
 
-	// unmarshal the record
+	// Check the RSA signature, if MITM
+	sender_rsa_public, ok := userlib.KeystoreGet(string(CalcHash([]byte(sender))))
+	if !ok {
+		return errors.New("NotValidSender")
+	}
+	if_verify := userlib.RSAVerify(&sender_rsa_public, CalcHash(marshaled_file_info), share_record.RSASignOnHashCT)
+	if if_verify != nil {
+		return if_verify
+	}
+
+	// Unchanged, unmarshal the record
 	var file_info sharingData
 	err = json.Unmarshal(marshaled_file_info, &file_info)
 	if err != nil {
 		return err
 	}
-
-	// TODO: check if there are MITM
 
 	// store the data in the user's datastore
 	err = userdata.StoreFileWithIndex(filename, file_info)
