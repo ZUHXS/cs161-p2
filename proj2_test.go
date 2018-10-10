@@ -1,6 +1,8 @@
 package proj2
 
-import "github.com/nweaver/cs161-p2/userlib"
+import (
+	"github.com/nweaver/cs161-p2/userlib"
+)
 import "testing"
 import "reflect"
 
@@ -11,7 +13,7 @@ import "reflect"
 func TestInit(t *testing.T) {
 	t.Log("Initialization test")
 	userlib.DebugPrint = true
-	someUsefulThings()
+	//someUsefulThings()
 
 	userlib.DebugPrint = false
 	u, err := InitUser("alice", "fubar")

@@ -112,6 +112,8 @@ userHMAC和fileHMAC同样保存在hash("userHMAC"+username), hash("fileHMAC"+use
 
 当想要共享的时候，在sharingRecord中保存有public key加密后的key，以及一个用这个key加密后的文件信息（文件地址，文件解密用的key以及验证HMAC用的key）
 
+发送E(m, key), E(key, Bpublic), Sign(m, Aprivate)
+
 
 
 问题：
