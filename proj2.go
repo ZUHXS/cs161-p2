@@ -89,7 +89,7 @@ type User struct {
 type FileInfo struct {
 	FileName [][]byte
 	KeyForDecrypt [][]byte
-	NonceForDecrypt [][]byte
+	//NonceForDecrypt [][]byte
 	KeyForHMAC [][]byte
 	StoreAddress [][]byte
 	NumberAddress [][]byte
@@ -97,6 +97,7 @@ type FileInfo struct {
 
 type FileDataStructure struct {
 	HMAC []byte
+	NonceForEncryption []byte
 	EncryptedContent []byte
 }
 
@@ -322,14 +323,15 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 		}
 	}
 
-
+	var NonceForDecryptFileData []byte
+	NonceForDecryptFileData = userlib.RandomBytes(16)
 
 	if flag == 0 {
 		file_info.FileName = append(file_info.FileName, []byte(filename))
 		file_info.NumberAddress = append(file_info.NumberAddress, userlib.RandomBytes(32))
 		file_info.StoreAddress = append(file_info.StoreAddress, userlib.RandomBytes(32))   // address 32 bytes
 		file_info.KeyForDecrypt = append(file_info.KeyForDecrypt, userlib.RandomBytes(16)) // AES 128
-		file_info.NonceForDecrypt = append(file_info.NonceForDecrypt, userlib.RandomBytes(16))
+		//file_info.NonceForDecrypt = append(file_info.NonceForDecrypt, userlib.RandomBytes(16))
 		file_info.KeyForHMAC = append(file_info.KeyForHMAC, userlib.RandomBytes(16)) // length of the key for HMAC 16 bytes
 	} else { // update the corresponding file info
 		index = a
@@ -342,12 +344,13 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	userlib.DatastoreSet(string(file_info.NumberAddress[a]), Number_byte)
 
 	// encrypt the file data
-	data_after_encryption := CalcEncCFBAES(file_info.KeyForDecrypt[index], file_info.NonceForDecrypt[index], data)
+	data_after_encryption := CalcEncCFBAES(file_info.KeyForDecrypt[index], NonceForDecryptFileData, data)
 	// calculate the HMAC for the encrypted data
 	data_hmac := CalcHMAC(file_info.KeyForHMAC[index], data_after_encryption)
 	var NewFileData FileDataStructure
 	NewFileData.EncryptedContent = data_after_encryption
 	NewFileData.HMAC = data_hmac
+	NewFileData.NonceForEncryption = NonceForDecryptFileData
 	// marshal the data
 	File_data_marshal, err := json.Marshal(NewFileData)
 	if err != nil {
@@ -416,7 +419,6 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	}
 
 	// Find the correct address to place the new data
-	temp_file_data_nonce := file_info.NonceForDecrypt[a]
 	temp_file_data_key_Dec := file_info.KeyForDecrypt[a]
 	temp_file_data_address := file_info.StoreAddress[a]
 	//temp_data, ok = userlib.DatastoreGet(string(temp_file_data_address))
@@ -440,15 +442,16 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 
 
 	for count := 1; count < Number; count++ {
-		temp_file_data_nonce = CalcHash(temp_file_data_nonce)[:16]
 		temp_file_data_key_Dec = CalcHash(temp_file_data_key_Dec)[:16]
 		temp_file_data_address = CalcHash(temp_file_data_address)
 	}
 	// encrypt the data
+	temp_file_data_nonce := userlib.RandomBytes(16)
 	data_after_encryption := CalcEncCFBAES(temp_file_data_key_Dec, temp_file_data_nonce, data)
 	data_hmac := CalcHMAC(file_info.KeyForHMAC[a], data_after_encryption)
 	var NewFileData FileDataStructure
 	NewFileData.EncryptedContent = data_after_encryption
+	NewFileData.NonceForEncryption = temp_file_data_nonce
 	NewFileData.HMAC = data_hmac
 	// marshal the data
 	file_data_marshal, err := json.Marshal(NewFileData)
@@ -540,7 +543,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	}
 
 	// equals, begin to decrypt the data
-	recover_file_data := CalcDecCFBAES(file_info.KeyForDecrypt[a], file_info.NonceForDecrypt[a], new_file_data.EncryptedContent)
+	recover_file_data := CalcDecCFBAES(file_info.KeyForDecrypt[a], new_file_data.NonceForEncryption, new_file_data.EncryptedContent)
 
 
 	// get the total number
@@ -556,13 +559,11 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 
 	// check if there are appended data
 	temp_file_data_address := file_info.StoreAddress[a]
-	temp_file_data_nonce := file_info.NonceForDecrypt[a]
 	temp_file_data_key_Dec := file_info.KeyForDecrypt[a]
 
 	var temp_file_data FileDataStructure
 	for b := 1; b < Number; b++ {
 		temp_file_data_address = CalcHash(temp_file_data_address)
-		temp_file_data_nonce = CalcHash(temp_file_data_nonce)[:16]
 		temp_file_data_key_Dec = CalcHash(temp_file_data_key_Dec)[:16]
 		temp_origin_data, ok := userlib.DatastoreGet(string(temp_file_data_address))
 		if !ok {
@@ -579,7 +580,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 			return nil, errors.New("2IntegrityError")
 		}
 		// begin to decrypt the data
-		temp_recover_file_data := CalcDecCFBAES(temp_file_data_key_Dec, temp_file_data_nonce, temp_file_data.EncryptedContent)
+		temp_recover_file_data := CalcDecCFBAES(temp_file_data_key_Dec, temp_file_data.NonceForEncryption, temp_file_data.EncryptedContent)
 		recover_file_data = []byte(string(recover_file_data) + string(temp_recover_file_data))
 	}
 
@@ -597,7 +598,6 @@ type sharingRecord struct {
 
 type sharingData struct {
 	KeyForDecrypt []byte
-	NonceForDecrypt []byte
 	KeyForHMAC []byte
 	StoreAddress []byte
 	NumberAddress []byte
@@ -673,7 +673,6 @@ func (userdata *User) ShareFile(filename string, recipient string) (msgid string
 
 	// get the file info
 	share_file_info.KeyForDecrypt = file_info.KeyForDecrypt[a]
-	share_file_info.NonceForDecrypt = file_info.NonceForDecrypt[a]
 	share_file_info.StoreAddress = file_info.StoreAddress[a]
 	share_file_info.KeyForHMAC = file_info.KeyForHMAC[a]
 	share_file_info.NumberAddress = file_info.NumberAddress[a]
@@ -749,7 +748,6 @@ func (userdata *User) StoreFileWithIndex(filename string, new_file_info sharingD
 		file_info.NumberAddress = append(file_info.NumberAddress, new_file_info.NumberAddress)
 		file_info.StoreAddress = append(file_info.StoreAddress, new_file_info.StoreAddress)   // address 32 bytes
 		file_info.KeyForDecrypt = append(file_info.KeyForDecrypt, new_file_info.KeyForDecrypt) // AES 128
-		file_info.NonceForDecrypt = append(file_info.NonceForDecrypt, new_file_info.NonceForDecrypt)
 		file_info.KeyForHMAC = append(file_info.KeyForHMAC, new_file_info.KeyForHMAC) // length of the key for HMAC 16 bytes
 	} else {     // update the corresponding file info
 		return errors.New("RepeatedFileName!")     // according to Nick's answer on Piazza, "It is up to you what you do"
@@ -882,7 +880,6 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 	}
 
 	file_info.StoreAddress = append(file_info.StoreAddress[:a], file_info.StoreAddress[a+1:]...)
-	file_info.NonceForDecrypt = append(file_info.NonceForDecrypt[:a], file_info.NonceForDecrypt[a+1:]...)
 	file_info.KeyForHMAC = append(file_info.KeyForHMAC[:a], file_info.KeyForHMAC[a+1:]...)
 	file_info.KeyForDecrypt = append(file_info.KeyForDecrypt[:a], file_info.KeyForDecrypt[a+1:]...)
 	file_info.FileName = append(file_info.FileName[:a], file_info.FileName[a+1:]...)
