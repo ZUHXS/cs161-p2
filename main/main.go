@@ -96,5 +96,26 @@ func main() {
 	}
 	fmt.Println(string(data))
 
+	err = user.RevokeFile("file4")
+	if err != nil {
+		fmt.Println(err)
+	}
+	user.AppendFile("file4", []byte("bbb"))
+
+	fmt.Println("aaa")
+
+	data, err = user2.LoadFile("bobfile3")
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(string(data))
+
+	fmt.Println("bbb")
+	data, err = user.LoadFile("file4")
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(string(data))
+
 
 }

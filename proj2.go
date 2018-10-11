@@ -844,12 +844,96 @@ func (userdata *User) ReceiveFile(filename string, sender string, msgid string) 
 		return err
 	}
 
-
 	return nil
 }
 
 // Removes access for all others.
 func (userdata *User) RevokeFile(filename string) (err error) {
+	// first get the file
+	recover_file, err := userdata.LoadFile(filename)
+	if err != nil {
+		return err
+	}
+
+	// delete the previous file
+	temp_data, ok := userlib.DatastoreGet(string(userdata.FileInfoAddress))
+	if !ok {
+		return errors.New("IntegrityError")
+	}
+	// check if the HMAC satisfies the file_info
+	file_info_hmac_address := CalcHash([]byte("fileinfoHMAC"+string(userdata.Username)))
+	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
+	if !ok {
+		return errors.New("IntegrityError")
+	}
+	file_info_hmac := CalcHMAC(userdata.UserPassword, temp_data)
+	if !userlib.Equal(expect_file_info_hmac, file_info_hmac) {
+		return errors.New("IntegrityError")
+	}
+
+	// recover the file info
+	recover_data := CalcDecCFBAES(userdata.FileInfoPassword, userdata.NonceForFileInfoData, temp_data)
+
+	// unmarshal the data
+	var file_info FileInfo
+	err = json.Unmarshal(recover_data, &file_info)
+	if err != nil {
+		return err
+	}
+	index := len(file_info.FileName)
+	flag := 0
+	var a int
+	for a = 0; a < index; a++ {
+		if string(file_info.FileName[a]) == filename {
+			flag = 1
+			break
+		}
+	}
+	if flag == 0 {
+		return errors.New("FileNotFound")
+	}
+
+	// get the total number
+	NumberBytes, ok := userlib.DatastoreGet(string(file_info.NumberAddress[a]))
+	if !ok {
+		return errors.New("IntegrityError")
+	}
+	var Number int
+	err = json.Unmarshal(NumberBytes, &Number)
+	if err != nil {
+		return err
+	}
+
+	temp_file_data_address := file_info.StoreAddress[a]
+	for b := 0; b < Number; b++ {
+		userlib.DatastoreDelete(string(temp_file_data_address))
+		temp_file_data_address = CalcHash(temp_file_data_address)
+	}
+
+	file_info.StoreAddress = append(file_info.StoreAddress[:a], file_info.StoreAddress[a+1:]...)
+	file_info.NonceForDecrypt = append(file_info.NonceForDecrypt[:a], file_info.NonceForDecrypt[a+1:]...)
+	file_info.KeyForHMAC = append(file_info.KeyForHMAC[:a], file_info.KeyForHMAC[a+1:]...)
+	file_info.KeyForDecrypt = append(file_info.KeyForDecrypt[:a], file_info.KeyForDecrypt[a+1:]...)
+	file_info.FileName = append(file_info.FileName[:a], file_info.FileName[a+1:]...)
+	file_info.NumberAddress = append(file_info.NumberAddress[:a], file_info.NumberAddress[a+1:]...)
+	// restore the file_info
+	file_info_marshal, err := json.Marshal(file_info)
+	if err != nil {
+		return
+	}
+	// encrypt the file info
+	to_store_file_info_data := CalcEncCFBAES(userdata.FileInfoPassword, userdata.NonceForFileInfoData, file_info_marshal)
+	// store the file info data
+	userlib.DatastoreSet(string(userdata.FileInfoAddress), to_store_file_info_data)
+
+	// update the hmac for file info
+	new_file_info_hmac := CalcHMAC(userdata.UserPassword, to_store_file_info_data)
+	new_file_info_hmac_address := CalcHash([]byte("fileinfoHMAC" + string(userdata.Username)))
+	userlib.DatastoreSet(string(new_file_info_hmac_address), new_file_info_hmac)
+
+
+	// restore the data
+	userdata.StoreFile(filename, recover_file)
 	return
 }
 
