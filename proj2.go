@@ -130,6 +130,18 @@ func CalcDecCFBAES(key []byte, nonce []byte, data []byte) ([]byte) {
 }
 
 
+func CheckFileInfoHMAC(userdata *User, fileinfodata []byte) (err error){
+	file_info_hmac_address := CalcHash([]byte("fileinfoHMAC"+string(userdata.Username)))
+	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
+	if !ok {
+		return errors.New("IntegrityError")
+	}
+	file_info_hmac := CalcHMAC(userdata.UserPassword, fileinfodata)
+	if !userlib.Equal(expect_file_info_hmac, file_info_hmac) {
+		return errors.New("IntegrityError")
+	}
+	return nil
+}
 
 // This creates a user.  It will only be called once for a user
 // (unless the keystore and datastore are cleared during testing purposes)
@@ -285,23 +297,17 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 		return
 	}
 	// check if the HMAC satisfies the file_info
-	file_info_hmac_address := CalcHash([]byte("fileinfoHMAC"+string(userdata.Username)))
-	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
-	if !ok {
+	err := CheckFileInfoHMAC(userdata, temp_data)
+	if err != nil {
 		return
 	}
-	file_info_hmac := CalcHMAC(userdata.UserPassword, temp_data)
-	if !userlib.Equal(expect_file_info_hmac, file_info_hmac) {
-		return
-	}
-
 	// recover the file info
 	NonceForFileInfoData := []byte(string(temp_data)[:16])
 	temp_data = []byte(string(temp_data)[16:])
 	recover_data := CalcDecCFBAES(userdata.FileInfoPassword, NonceForFileInfoData, temp_data)
 	// unmarshal the data
 	var file_info FileInfo
-	err := json.Unmarshal(recover_data, &file_info)
+	err = json.Unmarshal(recover_data, &file_info)
 	if err != nil {
 		return
 	}
@@ -380,18 +386,14 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 		return errors.New("IntegrityError")
 	}
 	// check if the HMAC satisfies the file_info
-	file_info_hmac_address := CalcHash([]byte("fileinfoHMAC"+string(userdata.Username)))
-	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
-	if !ok {
-		return errors.New("IntegrityError")
+	err = CheckFileInfoHMAC(userdata, temp_data)
+	if err != nil {
+		return err
 	}
-	file_info_hmac := CalcHMAC(userdata.UserPassword, temp_data)
-	if !userlib.Equal(expect_file_info_hmac, file_info_hmac) {
-		return errors.New("IntegrityError")
-	}
+
+	// recover the file info
 	NonceForFileInfoData := []byte(string(temp_data)[:16])
 	temp_data = []byte(string(temp_data)[16:])
-	// recover the file info
 	recover_data := CalcDecCFBAES(userdata.FileInfoPassword, NonceForFileInfoData, temp_data)
 
 	// unmarshal the data
@@ -489,14 +491,9 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	}
 	// get the Nonce and the message
 	// check if the HMAC satisfies the file_info
-	file_info_hmac_address := CalcHash([]byte("fileinfoHMAC"+string(userdata.Username)))
-	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
-	if !ok {
-		return nil, errors.New("IntegrityError")
-	}
-	file_info_hmac := CalcHMAC(userdata.UserPassword, temp_data)
-	if !userlib.Equal(expect_file_info_hmac, file_info_hmac) {
-		return nil, errors.New("IntegrityError")
+	err = CheckFileInfoHMAC(userdata, temp_data)
+	if err != nil {
+		return nil, err
 	}
 
 	// recover the file info
@@ -642,14 +639,9 @@ func (userdata *User) ShareFile(filename string, recipient string) (msgid string
 		return "", errors.New("IntegrityError")
 	}
 	// check if the HMAC satisfies the file_info
-	file_info_hmac_address := CalcHash([]byte("fileinfoHMAC"+string(userdata.Username)))
-	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
-	if !ok {
-		return "", errors.New("IntegrityError")
-	}
-	file_info_hmac := CalcHMAC(userdata.UserPassword, temp_data)
-	if !userlib.Equal(expect_file_info_hmac, file_info_hmac) {
-		return "", errors.New("IntegrityError")
+	err = CheckFileInfoHMAC(userdata, temp_data)
+	if err != nil {
+		return "", err
 	}
 	// recover the file info
 	NonceForFileInfoData := []byte(string(temp_data)[:16])
@@ -725,15 +717,9 @@ func (userdata *User) StoreFileWithIndex(filename string, new_file_info sharingD
 	}
 	// get the Nonce
 
-	// check if the HMAC satisfies the file_info
-	file_info_hmac_address := CalcHash([]byte("fileinfoHMAC"+string(userdata.Username)))
-	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
-	if !ok {
-		return errors.New("IntegrityError")
-	}
-	file_info_hmac := CalcHMAC(userdata.UserPassword, temp_data)
-	if !userlib.Equal(expect_file_info_hmac, file_info_hmac) {
-		return errors.New("IntegrityError")
+	err := CheckFileInfoHMAC(userdata, temp_data)
+	if err != nil {
+		return err
 	}
 
 	// recover the file info
@@ -742,7 +728,7 @@ func (userdata *User) StoreFileWithIndex(filename string, new_file_info sharingD
 	recover_data := CalcDecCFBAES(userdata.FileInfoPassword, NonceForFileInfoData, temp_data)
 	// unmarshal the data
 	var file_info FileInfo
-	err := json.Unmarshal(recover_data, &file_info)
+	err = json.Unmarshal(recover_data, &file_info)
 	if err != nil {
 		return errors.New("IntegrityError")
 	}
@@ -849,15 +835,9 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 		return errors.New("IntegrityError")
 	}
 
-	// check if the HMAC satisfies the file_info
-	file_info_hmac_address := CalcHash([]byte("fileinfoHMAC"+string(userdata.Username)))
-	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
-	if !ok {
-		return errors.New("IntegrityError")
-	}
-	file_info_hmac := CalcHMAC(userdata.UserPassword, temp_data)
-	if !userlib.Equal(expect_file_info_hmac, file_info_hmac) {
-		return errors.New("IntegrityError")
+	err = CheckFileInfoHMAC(userdata, temp_data)
+	if err != nil {
+		return err
 	}
 
 	// recover the file info
