@@ -47,6 +47,60 @@ func TestStorage(t *testing.T) {
 	}
 }
 
+
+func TestAppend(t *testing.T) {
+	u, err := GetUser("alice", "fubar")
+	if err != nil {
+		t.Error("Failed to reload user", err)
+		return
+	}
+	t.Log("Loaded user", u)
+
+	v1 := []byte("file1Content")
+	u.StoreFile("file1", v1)
+	v2 := []byte(" file1Append1")
+	err = u.AppendFile("file1", v2)
+	if err != nil {
+		t.Error("Failed to append", err)
+	}
+	v3 := []byte(" file1Append2")
+	err = u.AppendFile("file1", v3)
+	if err != nil {
+		t.Error("Failed to append", err)
+	}
+	v_1, err := u.LoadFile("file1")
+	if err != nil {
+		t.Error("Failed to append", err)
+	}
+	if !reflect.DeepEqual(v_1, []byte(string(v1)+string(v2)+string(v3))) {
+		t.Error("Appending not equal", v_1, []byte(string(v1)+string(v2)+string(v3)))
+	}
+
+	// restore and overwrite
+	u.StoreFile("file1", v2)
+	v_1, err = u.LoadFile("file1")
+	if err != nil {
+		t.Error("Failed to append", err)
+	}
+	if !reflect.DeepEqual(v_1, v2) {
+		t.Error("Appending not equal", v_1, []byte(string(v1)+string(v2)+string(v3)))
+	}
+
+	err = u.AppendFile("file1", v1)
+	if err != nil {
+		t.Error("Failed to append", err)
+	}
+
+	v_1, err = u.LoadFile("file1")
+	if err != nil {
+		t.Error("Failed to append", err)
+	}
+	if !reflect.DeepEqual(v_1, []byte(string(v2)+string(v1))) {
+		t.Error("Appending not equal", v_1, []byte(string(v2)+string(v1)))
+	}
+	
+}
+
 func TestShare(t *testing.T) {
 	u, err := GetUser("alice", "fubar")
 	if err != nil {
