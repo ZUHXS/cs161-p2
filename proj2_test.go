@@ -98,7 +98,7 @@ func TestAppend(t *testing.T) {
 	if !reflect.DeepEqual(v_1, []byte(string(v2)+string(v1))) {
 		t.Error("Appending not equal", v_1, []byte(string(v2)+string(v1)))
 	}
-	
+
 }
 
 func TestShare(t *testing.T) {
@@ -135,5 +135,42 @@ func TestShare(t *testing.T) {
 	if !reflect.DeepEqual(v, v2) {
 		t.Error("Shared file is not the same", v, v2)
 	}
+
+
+
+	u3, err := InitUser("zuhxs", "zuhxs")
+	if err != nil {
+		t.Error("Failed to initialize zuhxs", err2)
+	}
+	msgid, err = u2.ShareFile("file2", "zuhxs")
+	if err != nil {
+		t.Error("Failed to share the a file", err)
+	}
+	err = u3.ReceiveFile("file3", "bob", msgid)
+	if err != nil {
+		t.Error("Failed to receive the share message", err)
+	}
+
+	v2, err = u3.LoadFile("file3")
+	if err != nil {
+		t.Error("Failed to download the file after sharing", err)
+	}
+	if !reflect.DeepEqual(v, v2) {
+		t.Error("Shared file is not the same", v, v2)
+	}
+
+
+
+	u3.AppendFile("file3", []byte("AppendbyZUHXS"))
+	v_append, err := u.LoadFile("file1")
+	if err != nil {
+		t.Error("Failed to download the file from alice", err)
+	}
+
+	if !reflect.DeepEqual(v_append, []byte(string(v)+"AppendbyZUHXS")) {
+		t.Error("Shared file is not the same", v, v2)
+	}
+
+
 
 }
