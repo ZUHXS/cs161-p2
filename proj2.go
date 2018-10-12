@@ -198,10 +198,10 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 
 
 	// prepare the IV and the salt for CFB-AES
-	key_salt_address := CalcHash([]byte("saltforkey"+username))
+	key_salt_address := CalcHash([]byte("saltforkey"+username+password))
 	key_salt := userlib.RandomBytes(16)
 	userlib.DatastoreSet(string(key_salt_address), key_salt)
-	key_IV_address := CalcHash([]byte("IVforCFBAES"+username))
+	key_IV_address := CalcHash([]byte("IVforCFBAES"+username+password))
 	key_IV := userlib.RandomBytes(16)
 	userlib.DatastoreSet(string(key_IV_address), key_IV)
 
@@ -257,13 +257,13 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	}
 
 	// first get the IV and the salt for CFB-AES decrypt
-	key_salt_address := CalcHash([]byte("saltforkey"+username))
+	key_salt_address := CalcHash([]byte("saltforkey"+username+password))
 	key_salt, ok := userlib.DatastoreGet(string(key_salt_address))
 	// key_salt not found, file system corrupted
 	if !ok {
 		return nil, errors.New("IntegrityError")
 	}
-	key_IV_address := CalcHash([]byte("IVforCFBAES"+username))
+	key_IV_address := CalcHash([]byte("IVforCFBAES"+username+password))
 	key_IV, ok := userlib.DatastoreGet(string(key_IV_address))
 	// key_IV not found, file system corrupted
 	if !ok {
