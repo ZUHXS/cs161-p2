@@ -4,7 +4,6 @@ package proj2
 // imports it will break the autograder, and we will be Very Upset.
 
 import (
-	"fmt"
 	// You neet to add with
 	// go get github.com/nweaver/cs161-p2/userlib
 	"github.com/nweaver/cs161-p2/userlib"
@@ -164,7 +163,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	var user_file_info FileInfo
 
 	// first generate the hash for the username for key
-	name_hash := CalcHash([]byte(username))
+	name_hash := CalcHash([]byte("User"+username))
 	// save the username and the password as plain text
 	userdata.Username = []byte(username)
 	userdata.UserPassword = []byte(password)
@@ -173,14 +172,13 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	var RSAKeyPair *userlib.PrivateKey
 	RSAKeyPair, err = userlib.GenerateRSAKey()
 	// save the public key into the keystore
-	userlib.KeystoreSet(string(name_hash), RSAKeyPair.PublicKey)
+	userlib.KeystoreSet(string(CalcHash([]byte(username))), RSAKeyPair.PublicKey)
 	userdata.PrivateKey = RSAKeyPair
 
 
 	// generate a unique address for user's file information
 	userdata.FileInfoAddress = userlib.RandomBytes(32)
 	// save the file info
-	//fmt.Println(len(user_file_info.hash))
 	file_info_marshal, err := json.Marshal(user_file_info)
 	if (err != nil){
 		return &userdata, err
@@ -189,7 +187,6 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userdata.FileInfoPassword = userlib.RandomBytes(16)
 	NonceForFileInfoData := userlib.RandomBytes(16)
 
-	//userdata.NonceForFileInfoData = userlib.RandomBytes(16)  // generate the nonce
 	to_store_file_info_data := CalcEncCFBAES(userdata.FileInfoPassword, NonceForFileInfoData, file_info_marshal)
 	// add the Nonce for encryption just after the bytes
 	to_store_file_info_data = []byte(string(NonceForFileInfoData) + string(to_store_file_info_data))
@@ -197,21 +194,16 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userlib.DatastoreSet(string(userdata.FileInfoAddress), to_store_file_info_data)
 
 
-	// prepare the IV and the salt for CFB-AES
-	key_salt_address := CalcHash([]byte("saltforkey"+username+password))
-	key_salt := userlib.RandomBytes(16)
-	userlib.DatastoreSet(string(key_salt_address), key_salt)
-	key_IV_address := CalcHash([]byte("IVforCFBAES"+username+password))
+	// prepare the IV for CFB-AES
 	key_IV := userlib.RandomBytes(16)
-	userlib.DatastoreSet(string(key_IV_address), key_IV)
 
 	// begin to save and encrypte the data
 	user_marshal, err := json.Marshal(userdata)
 	if err != nil {
 		return &userdata, err
 	}
-	user_AES_key := userlib.Argon2Key([]byte(password), key_salt, 16)
-	to_store_user_data := CalcEncCFBAES(user_AES_key, key_IV, user_marshal)
+	user_AES_key := userlib.Argon2Key([]byte(password), []byte("saltforuserkey"), 16)
+	to_store_user_data := []byte(string(key_IV)+string(CalcEncCFBAES(user_AES_key, key_IV, user_marshal)))
 	// save the data in data store
 	userlib.DatastoreSet(string(name_hash), to_store_user_data)
 
@@ -234,11 +226,10 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 // data was corrupted, or if the user can't be found.
 func GetUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
-	name_hash := CalcHash([]byte(username))
+	name_hash := CalcHash([]byte("User"+username))
 	// first get from the remote datastore
 	temp_data, ok := userlib.DatastoreGet(string(name_hash))
 	if !ok {
-		fmt.Println("It is not a valid user!")
 		return nil, errors.New("not a valid user!")
 	}
 
@@ -248,30 +239,22 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	user_hmac_address := CalcHash([]byte("userHMAC" + username))
 	expect_hmac, ok := userlib.DatastoreGet(string(user_hmac_address))
 	if !ok {
-		//fmt.Println("1wtf happened?????")
 		return nil, errors.New("IntegrityError")
 	}
 	if !userlib.Equal(user_hmac, expect_hmac) {    // Does NOT leak timing.
-		//fmt.Println("2wtf happened?????")
 		return nil, errors.New("IntegrityError")
 	}
 
-	// first get the IV and the salt for CFB-AES decrypt
-	key_salt_address := CalcHash([]byte("saltforkey"+username+password))
-	key_salt, ok := userlib.DatastoreGet(string(key_salt_address))
-	// key_salt not found, file system corrupted
-	if !ok {
-		return nil, errors.New("IntegrityError")
-	}
-	key_IV_address := CalcHash([]byte("IVforCFBAES"+username+password))
-	key_IV, ok := userlib.DatastoreGet(string(key_IV_address))
+	// first get the IV for CFB-AES decrypt
+	key_IV := []byte(string(temp_data)[:16])
+	temp_data = []byte(string(temp_data)[16:])
 	// key_IV not found, file system corrupted
 	if !ok {
 		return nil, errors.New("IntegrityError")
 	}
 
 	// try to decrypt the data
-	user_AES_key := userlib.Argon2Key([]byte(password), key_salt, 16)
+	user_AES_key := userlib.Argon2Key([]byte(password), []byte("saltforuserkey"), 16)
 	decryption_data := CalcDecCFBAES(user_AES_key, key_IV, temp_data)
 
 	// then unmarshal to get the data
@@ -526,7 +509,6 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	// get the data
 	temp_temp_data, ok := userlib.DatastoreGet(string(file_info.StoreAddress[a]))
 	if !ok {
-		fmt.Println("error loading!")
 		return nil, errors.New("IntegrityError")
 	}
 	// first unmarshal and check if it is valid

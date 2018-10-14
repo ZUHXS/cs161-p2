@@ -9,11 +9,15 @@ func main() {
 
 
 	user, err := proj2.InitUser("aaa", "bbb")
-	user2, err := proj2.InitUser("bob", "ccc")
+	user2, err := proj2.InitUser("bob", "bbb")
 	if err != nil {
-		fmt.Println(user2)
+		fmt.Println(err)
 	}
 	user, err = proj2.GetUser("aaa", "bbb")
+
+	if err != nil {
+		fmt.Println(err)
+	}
 
 
 	user.StoreFile("file4", []byte("File4content"))
@@ -100,7 +104,7 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
-	user.AppendFile("file4", []byte("bbb"))
+	user.AppendFile("file4", []byte("b"))
 
 	fmt.Println("aaa")
 
