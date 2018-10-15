@@ -119,7 +119,7 @@ func main() {
 
 	fmt.Println("aaa")
 
-	data, err = user2.LoadFile("bobfile3")
+	err = user2.AppendFile("bobfile3", []byte("ddd"))
 	if err != nil {
 		fmt.Println(err)
 	}

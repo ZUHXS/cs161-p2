@@ -13,7 +13,7 @@ import "reflect"
 func TestInit(t *testing.T) {
 	t.Log("Initialization test")
 	userlib.DebugPrint = true
-	//someUsefulThings()
+	someUsefulThings()
 
 	userlib.DebugPrint = false
 	u, err := InitUser("alice", "fubar")
@@ -212,6 +212,8 @@ func TestRevoke(t *testing.T) {
 		t.Error("Failed to revoke the file", err6)
 	}
 
+	u2.StoreFile("file2", []byte(""))
+
 
 	v4, err7 := u.LoadFile("file1")
 	if err7 != nil {
@@ -222,5 +224,15 @@ func TestRevoke(t *testing.T) {
 		t.Error("File doesn't match")
 	}
 
+
+	New_map := userlib.DatastoreGetMap();
+	name_hash := userlib.Argon2Key([]byte("alice"+"fubar"), []byte("name_hash"), 32)
+	New_map[string(name_hash)] = []byte(string(New_map[string(name_hash)[:len(name_hash)-1]]))
+	u, err = GetUser("alice", "fubar")
+	if err == nil {
+		t.Error("Failed to reload user", err)
+		return
+	}
+	t.Log("Loaded user", u)
 
 }

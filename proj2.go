@@ -433,7 +433,6 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	Result_Number_Byte := CalcEncCFBAES(file_info.KeyForDecrypt[a], Nonce_For_Number, NewNumberByte)
 	// reset the Number
 	userlib.DatastoreSet(string(file_info.NumberAddress[a]), []byte(string(Nonce_For_Number)+string(Result_Number_Byte)))
-	//fmt.Println([]byte(string(Nonce_For_Number)+string(Result_Number_Byte)))
 
 
 	for count := 1; count < Number; count++ {
@@ -542,7 +541,6 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 
 	// get the total number
 	NumberBytes, ok := userlib.DatastoreGet(string(file_info.NumberAddress[a]))
-	//fmt.Println(NumberBytes)
 	if !ok {
 		return nil, errors.New("IntegrityError")
 	}
@@ -551,7 +549,6 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	NumberBytes = CalcDecCFBAES(file_info.KeyForDecrypt[a], Nonce_for_Number, NumberBytes)
 	var Number int
 	err = json.Unmarshal(NumberBytes, &Number)
-	//fmt.Println(Number)
 	if err != nil {
 		return nil, err
 	}
@@ -884,6 +881,7 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 		userlib.DatastoreDelete(string(temp_file_data_address))
 		temp_file_data_address = CalcHash([]byte(string(file_info.SaltForHash[a]) +string(temp_file_data_address)))
 	}
+	userlib.DatastoreDelete(string(file_info.NumberAddress[a]))
 
 	file_info.StoreAddress = append(file_info.StoreAddress[:a], file_info.StoreAddress[a+1:]...)
 	file_info.KeyForHMAC = append(file_info.KeyForHMAC[:a], file_info.KeyForHMAC[a+1:]...)
