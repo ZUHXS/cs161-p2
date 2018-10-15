@@ -30,12 +30,23 @@ func main() {
 
 
 
-	user.AppendFile("file4", []byte("aaa"))
+	err = user.AppendFile("file4", []byte("aaa"))
+
+	if err != nil {
+		fmt.Println("append", err)
+	}
+
 	data, err = user.LoadFile("file4")
 	if err != nil {
 		fmt.Println(err)
 	}
 
+	data, err = user.LoadFile("file4")
+	fmt.Println(string(data))
+
+	if err != nil {
+		fmt.Println(err)
+	}
 
 
 	fmt.Println(string(data))

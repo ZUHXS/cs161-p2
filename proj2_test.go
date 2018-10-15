@@ -202,7 +202,7 @@ func TestRevoke(t *testing.T) {
 
 	err5 := u.RevokeFile("file1")
 	if err5 != nil {
-		t.Error("Failed to revoke the file",err)
+		t.Error("Failed to revoke the file",err5)
 	}
 
 	u2.AppendFile("file2", []byte("b"))
