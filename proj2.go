@@ -89,6 +89,7 @@ type FileInfo struct {
 	FileName [][]byte
 	KeyForDecrypt [][]byte
 	//NonceForDecrypt [][]byte
+	SaltForArgon [][]byte
 	KeyForHMAC [][]byte
 	StoreAddress [][]byte
 	NumberAddress [][]byte
@@ -311,6 +312,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 
 	if flag == 0 {
 		file_info.FileName = append(file_info.FileName, []byte(filename))
+		file_info.SaltForArgon = append(file_info.SaltForArgon, userlib.RandomBytes(16))
 		file_info.NumberAddress = append(file_info.NumberAddress, userlib.RandomBytes(32))
 		file_info.StoreAddress = append(file_info.StoreAddress, userlib.RandomBytes(32))   // address 32 bytes
 		file_info.KeyForDecrypt = append(file_info.KeyForDecrypt, userlib.RandomBytes(16)) // AES 128
@@ -425,8 +427,8 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 
 
 	for count := 1; count < Number; count++ {
-		temp_file_data_key_Dec = CalcHash(temp_file_data_key_Dec)[:16]
-		temp_file_data_address = CalcHash(temp_file_data_address)
+		temp_file_data_key_Dec = CalcHash([]byte(string(file_info.SaltForArgon[a])+string(temp_file_data_key_Dec)))[:16]
+		temp_file_data_address = CalcHash([]byte(string(file_info.SaltForArgon[a])+string(temp_file_data_address)))
 	}
 	// encrypt the data
 	temp_file_data_nonce := userlib.RandomBytes(16)
@@ -542,11 +544,12 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	// check if there are appended data
 	temp_file_data_address := file_info.StoreAddress[a]
 	temp_file_data_key_Dec := file_info.KeyForDecrypt[a]
+	salt := file_info.SaltForArgon[a]
 
 	var temp_file_data FileDataStructure
 	for b := 1; b < Number; b++ {
-		temp_file_data_address = CalcHash(temp_file_data_address)
-		temp_file_data_key_Dec = CalcHash(temp_file_data_key_Dec)[:16]
+		temp_file_data_key_Dec = CalcHash([]byte(string(salt)+string(temp_file_data_key_Dec)))[:16]
+		temp_file_data_address = CalcHash([]byte(string(salt)+string(temp_file_data_address)))
 		temp_origin_data, ok := userlib.DatastoreGet(string(temp_file_data_address))
 		if !ok {
 			return nil, errors.New("1IntegrityError")
@@ -582,6 +585,7 @@ type sharingData struct {
 	KeyForDecrypt []byte
 	KeyForHMAC []byte
 	StoreAddress []byte
+	SaltForHash []byte
 	NumberAddress []byte
 }
 
@@ -658,6 +662,7 @@ func (userdata *User) ShareFile(filename string, recipient string) (msgid string
 	share_file_info.StoreAddress = file_info.StoreAddress[a]
 	share_file_info.KeyForHMAC = file_info.KeyForHMAC[a]
 	share_file_info.NumberAddress = file_info.NumberAddress[a]
+	share_file_info.SaltForHash = file_info.SaltForArgon[a]
 
 	// marshal the data
 	file_info_data_marshaled, err := json.Marshal(share_file_info)
@@ -731,6 +736,7 @@ func (userdata *User) StoreFileWithIndex(filename string, new_file_info sharingD
 		file_info.StoreAddress = append(file_info.StoreAddress, new_file_info.StoreAddress)   // address 32 bytes
 		file_info.KeyForDecrypt = append(file_info.KeyForDecrypt, new_file_info.KeyForDecrypt) // AES 128
 		file_info.KeyForHMAC = append(file_info.KeyForHMAC, new_file_info.KeyForHMAC) // length of the key for HMAC 16 bytes
+		file_info.SaltForArgon = append(file_info.SaltForArgon, new_file_info.SaltForHash)
 	} else {     // update the corresponding file info
 		return errors.New("RepeatedFileName!")     // according to Nick's answer on Piazza, "It is up to you what you do"
 	}
