@@ -22,6 +22,7 @@ func main() {
 
 	user.StoreFile("file4", []byte("File4content"))
 	data, err := user.LoadFile("file4")
+	fmt.Println("aaa")
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -117,19 +118,30 @@ func main() {
 	}
 	user.AppendFile("file4", []byte("b"))
 
-	fmt.Println("aaa")
 
 	err = user2.AppendFile("bobfile3", []byte("ddd"))
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(string(data))
 
-	fmt.Println("bbb")
+	data, err = user2.LoadFile("bobfile3")
+	if err != nil {
+		fmt.Println(err)
+	}
+
 	data, err = user.LoadFile("file4")
 	if err != nil {
 		fmt.Println(err)
 	}
+	fmt.Println(string(data))
+
+	user.AppendFile("file4", []byte("c"))
+
+	data, err = user.LoadFile("file4")
+	if err != nil {
+		fmt.Println(err)
+	}
+
 	fmt.Println(string(data))
 
 

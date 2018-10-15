@@ -327,9 +327,10 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	Number_byte, err := json.Marshal(Number)
 	Nonce_For_Number := userlib.RandomBytes(16)
 	Result_Number_Byte := CalcEncCFBAES(file_info.KeyForDecrypt[index], Nonce_For_Number, Number_byte)
+	Number_HMAC := CalcHMAC(file_info.KeyForHMAC[index], []byte(string(Nonce_For_Number)+string(Result_Number_Byte)))
 
 	// reset the Number
-	userlib.DatastoreSet(string(file_info.NumberAddress[a]), []byte(string(Nonce_For_Number)+string(Result_Number_Byte)))
+	userlib.DatastoreSet(string(file_info.NumberAddress[a]), []byte(string(Number_HMAC)+string(Nonce_For_Number)+string(Result_Number_Byte)))
 
 	// encrypt the file data
 	data_after_encryption := CalcEncCFBAES(file_info.KeyForDecrypt[index], NonceForDecryptFileData, data)
@@ -416,6 +417,11 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	if !ok {
 		return errors.New("IntegrityError")
 	}
+	HMAC_for_Number := []byte(string(NumberBytes)[:32])
+	NumberBytes = []byte(string(NumberBytes)[32:])
+	if !userlib.Equal(CalcHMAC(file_info.KeyForHMAC[a], NumberBytes), HMAC_for_Number) {
+		return errors.New("IntegrityError")
+	}
 	Nonce_for_Number := []byte(string(NumberBytes)[:16])
 	NumberBytes = []byte(string(NumberBytes)[16:])
 	NumberBytes = CalcDecCFBAES(file_info.KeyForDecrypt[a], Nonce_for_Number, NumberBytes)
@@ -431,8 +437,9 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	NewNumberByte, err := json.Marshal(Number)
 	Nonce_For_Number := userlib.RandomBytes(16)
 	Result_Number_Byte := CalcEncCFBAES(file_info.KeyForDecrypt[a], Nonce_For_Number, NewNumberByte)
+	New_HMAC_Number := CalcHMAC(file_info.KeyForHMAC[a], []byte(string(Nonce_For_Number)+string(Result_Number_Byte)))
 	// reset the Number
-	userlib.DatastoreSet(string(file_info.NumberAddress[a]), []byte(string(Nonce_For_Number)+string(Result_Number_Byte)))
+	userlib.DatastoreSet(string(file_info.NumberAddress[a]), []byte(string(New_HMAC_Number)+string(Nonce_For_Number)+string(Result_Number_Byte)))
 
 
 	for count := 1; count < Number; count++ {
@@ -544,6 +551,12 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	if !ok {
 		return nil, errors.New("IntegrityError")
 	}
+	HMAC_for_Number := []byte(string(NumberBytes)[:32])
+	NumberBytes = []byte(string(NumberBytes)[32:])
+
+	if !userlib.Equal(CalcHMAC(file_info.KeyForHMAC[a], NumberBytes), HMAC_for_Number) {
+		return nil, errors.New("IntegrityError")
+	}
 	Nonce_for_Number := []byte(string(NumberBytes)[:16])
 	NumberBytes = []byte(string(NumberBytes)[16:])
 	NumberBytes = CalcDecCFBAES(file_info.KeyForDecrypt[a], Nonce_for_Number, NumberBytes)
@@ -564,7 +577,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 		temp_file_data_address = CalcHash([]byte(string(salt)+string(temp_file_data_address)))
 		temp_origin_data, ok := userlib.DatastoreGet(string(temp_file_data_address))
 		if !ok {
-			return nil, errors.New("1IntegrityError")
+			return nil, errors.New("IntegrityError")
 		}
 		// begin to decrypt, first unmarshal
 		err = json.Unmarshal(temp_origin_data, &temp_file_data)
@@ -574,7 +587,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 		// then check the HMAC
 		data_hmac := CalcHMAC(file_info.KeyForHMAC[a], temp_file_data.EncryptedContent)
 		if !userlib.Equal(data_hmac, temp_file_data.HMAC) {
-			return nil, errors.New("2IntegrityError")
+			return nil, errors.New("IntegrityError")
 		}
 		// begin to decrypt the data
 		temp_recover_file_data := CalcDecCFBAES(temp_file_data_key_Dec, temp_file_data.NonceForEncryption, temp_file_data.EncryptedContent)
@@ -867,11 +880,17 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 	if !ok {
 		return errors.New("IntegrityError")
 	}
+	HMAC_for_Number := []byte(string(NumberBytes)[:32])
+	NumberBytes = []byte(string(NumberBytes)[32:])
+	if !userlib.Equal(CalcHMAC(file_info.KeyForHMAC[a], NumberBytes), HMAC_for_Number) {
+		return errors.New("IntegrityError")
+	}
 	Nonce_For_Number :=  []byte(string(NumberBytes)[:16])
 	NumberBytes = []byte(string(NumberBytes)[16:])
 	NumberBytes = CalcDecCFBAES(file_info.KeyForDecrypt[a], Nonce_For_Number, NumberBytes)
 	var Number int
 	err = json.Unmarshal(NumberBytes, &Number)
+
 	if err != nil {
 		return err
 	}
