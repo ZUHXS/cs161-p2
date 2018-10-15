@@ -171,6 +171,56 @@ func TestShare(t *testing.T) {
 		t.Error("Shared file is not the same", v, v2)
 	}
 
+}
+
+
+func TestRevoke(t *testing.T) {
+	u, err := GetUser("alice", "fubar")
+	if err != nil {
+		t.Error("Failed to reload user", err)
+	}
+
+	u2, err2 := GetUser("bob", "foobar")
+	if err2 != nil {
+		t.Error("Failed to reload user", err)
+	}
+
+
+	v1, err3 := u.LoadFile("file1")
+	if err3 != nil {
+		t.Error("Failed to download the file from alice", err)
+	}
+
+	v2, err4 := u2.LoadFile("file2")
+	if err4 != nil {
+		t.Error("Failed to download the file from bob", err)
+	}
+
+	if !userlib.Equal(v1, v2) {
+		t.Error("File doesn't match")
+	}
+
+	err5 := u.RevokeFile("file1")
+	if err5 != nil {
+		t.Error("Failed to revoke the file",err)
+	}
+
+	u2.AppendFile("file2", []byte("b"))
+
+	_, err6 := u2.LoadFile("file2")
+	if err6 == nil {
+		t.Error("Failed to revoke the file", err6)
+	}
+
+
+	v4, err7 := u.LoadFile("file1")
+	if err7 != nil {
+		t.Error("Failed to revoke the file", err7)
+	}
+
+	if !userlib.Equal(v4, v2) {
+		t.Error("File doesn't match")
+	}
 
 
 }

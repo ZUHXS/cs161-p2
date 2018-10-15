@@ -131,7 +131,7 @@ func CalcDecCFBAES(key []byte, nonce []byte, data []byte) ([]byte) {
 
 
 func CheckFileInfoHMAC(userdata *User, fileinfodata []byte) (err error){
-	file_info_hmac_address := CalcHash([]byte("fileinfoHMAC"+string(userdata.Username)))
+	file_info_hmac_address := userlib.Argon2Key([]byte(string(userdata.Username)+string(userdata.UserPassword)), []byte("fileinfoHMAC"), 32)
 	expect_file_info_hmac, ok := userlib.DatastoreGet(string(file_info_hmac_address))
 	if !ok {
 		return errors.New("IntegrityError")
@@ -163,7 +163,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	var user_file_info FileInfo
 
 	// first generate the hash for the username for key
-	name_hash := CalcHash([]byte("User"+username))
+	name_hash := userlib.Argon2Key([]byte(username+password), []byte("name_hash"), 32)
 	// save the username and the password as plain text
 	userdata.Username = []byte(username)
 	userdata.UserPassword = []byte(password)
@@ -194,7 +194,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userlib.DatastoreSet(string(userdata.FileInfoAddress), to_store_file_info_data)
 
 
-	// prepare the IV for CFB-AES
+	// prepare the IV for CFB-AES for user structure
 	key_IV := userlib.RandomBytes(16)
 
 	// begin to save and encrypte the data
@@ -209,12 +209,12 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 
 	// generate the HMAC for user
 	user_hmac := CalcHMAC([]byte(password), to_store_user_data)
-	user_hmac_address := CalcHash([]byte("userHMAC" + username))
+	user_hmac_address := userlib.Argon2Key([]byte(username+password), []byte("userHMAC"), 32)
 	userlib.DatastoreSet(string(user_hmac_address), user_hmac)
 
 	// generate the HMAC for the file info
 	file_info_hmac := CalcHMAC([]byte(password), to_store_file_info_data)
-	file_info_hmac_address := CalcHash([]byte("fileinfoHMAC" + username))
+	file_info_hmac_address := userlib.Argon2Key([]byte(username+password), []byte("fileinfoHMAC"), 32)
 	userlib.DatastoreSet(string(file_info_hmac_address), file_info_hmac)
 
 
@@ -226,7 +226,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 // data was corrupted, or if the user can't be found.
 func GetUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
-	name_hash := CalcHash([]byte("User"+username))
+	name_hash := userlib.Argon2Key([]byte(username+password), []byte("name_hash"), 32)
 	// first get from the remote datastore
 	temp_data, ok := userlib.DatastoreGet(string(name_hash))
 	if !ok {
@@ -236,7 +236,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 
 	// check if the HMAC is true
 	user_hmac := CalcHMAC([]byte(password), temp_data)
-	user_hmac_address := CalcHash([]byte("userHMAC" + username))
+	user_hmac_address := userlib.Argon2Key([]byte(username+password), []byte("userHMAC"), 32)
 	expect_hmac, ok := userlib.DatastoreGet(string(user_hmac_address))
 	if !ok {
 		return nil, errors.New("IntegrityError")
@@ -356,7 +356,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 
 	// update the hmac for file info
 	new_file_info_hmac := CalcHMAC(userdata.UserPassword, to_store_file_info_data)
-	new_file_info_hmac_address := CalcHash([]byte("fileinfoHMAC" + string(userdata.Username)))
+	new_file_info_hmac_address := userlib.Argon2Key([]byte(string(userdata.Username)+string(userdata.UserPassword)), []byte("fileinfoHMAC"), 32)
 	userlib.DatastoreSet(string(new_file_info_hmac_address), new_file_info_hmac)
 }
 
@@ -460,7 +460,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 
 	// update the hmac for file info
 	new_file_info_hmac := CalcHMAC(userdata.UserPassword, to_store_file_info_data)
-	new_file_info_hmac_address := CalcHash([]byte("fileinfoHMAC" + string(userdata.Username)))
+	new_file_info_hmac_address := userlib.Argon2Key([]byte(string(userdata.Username)+string(userdata.UserPassword)), []byte("fileinfoHMAC"), 32)
 	userlib.DatastoreSet(string(new_file_info_hmac_address), new_file_info_hmac)
 
 	return nil
@@ -749,7 +749,7 @@ func (userdata *User) StoreFileWithIndex(filename string, new_file_info sharingD
 
 	// update the hmac for file info
 	new_file_info_hmac := CalcHMAC(userdata.UserPassword, to_store_file_info_data)
-	new_file_info_hmac_address := CalcHash([]byte("fileinfoHMAC" + string(userdata.Username)))
+	new_file_info_hmac_address := userlib.Argon2Key([]byte(string(userdata.Username)+string(userdata.UserPassword)), []byte("fileinfoHMAC"), 32)
 	userlib.DatastoreSet(string(new_file_info_hmac_address), new_file_info_hmac)
 	return nil
 }
@@ -880,7 +880,7 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 
 	// update the hmac for file info
 	new_file_info_hmac := CalcHMAC(userdata.UserPassword, to_store_file_info_data)
-	new_file_info_hmac_address := CalcHash([]byte("fileinfoHMAC" + string(userdata.Username)))
+	new_file_info_hmac_address := userlib.Argon2Key([]byte(string(userdata.Username)+string(userdata.UserPassword)), []byte("fileinfoHMAC"), 32)
 	userlib.DatastoreSet(string(new_file_info_hmac_address), new_file_info_hmac)
 
 
